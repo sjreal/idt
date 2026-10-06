@@ -1,0 +1,32 @@
+name: idt-llm-cicd
+
+# Local service placeholders; application services arrive in P1.
+services:
+  postgres:
+    image: postgres:17-alpine
+    profiles: ["data"]
+    environment:
+      POSTGRES_DB: idt
+      POSTGRES_USER: idt
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-idt_local_only}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U idt -d idt"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  ollama:
+    image: ollama/ollama:0.6.8
+    profiles: ["llm"]
+    ports:
+      - "127.0.0.1:11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+
+volumes:
+  postgres_data:
+  ollama_data:
