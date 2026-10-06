@@ -4,10 +4,15 @@ version = "0.1.0"
 description = "A reproducible LLM application and guardrail evaluation project."
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
-dependencies = []
+dependencies = [
+    "fastapi>=0.115,<1",
+    "httpx>=0.28,<1",
+    "uvicorn[standard]>=0.34,<1",
+]
 
 [dependency-groups]
 dev = [
+    "anyio>=4.8,<5",
     "pytest>=8.3,<9",
     "ruff>=0.11,<1",
 ]
