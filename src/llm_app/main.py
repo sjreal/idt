@@ -13,6 +13,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from llm_app.backends.base import ChatBackend
 from llm_app.backends.ollama import ModelServiceError, OllamaBackend
 from llm_app.backends.opencode_go import OpenCodeGoBackend
+from llm_app.guardrails import (
+    GuardrailPipeline,
+    GuardrailUnavailable,
+    build_verdict,
+)
 from llm_app.schemas import ChatRequest, ChatResponse, ChatUsage, HealthResponse
 from llm_app.settings import get_settings
 
@@ -51,7 +56,15 @@ def get_backend() -> ChatBackend:
     raise RuntimeError(f"Unsupported LLM_BACKEND: {settings.llm_backend}")
 
 
-BackendDependency = Annotated[OllamaBackend, Depends(get_backend)]
+BackendDependency = Annotated[ChatBackend, Depends(get_backend)]
+
+
+@lru_cache
+def get_guardrail_pipeline() -> GuardrailPipeline:
+    return GuardrailPipeline(settings)
+
+
+GuardrailDependency = Annotated[GuardrailPipeline, Depends(get_guardrail_pipeline)]
 
 
 def require_supported_model(request: ChatRequest, backend: ChatBackend) -> None:
@@ -68,13 +81,37 @@ def require_supported_model(request: ChatRequest, backend: ChatBackend) -> None:
 
 
 async def complete_chat(
-    request: ChatRequest, backend: ChatBackend, session_id: str | None = None
+    request: ChatRequest,
+    backend: ChatBackend,
+    guardrails: GuardrailPipeline,
+    session_id: str | None = None,
 ) -> tuple[ChatResponse, str]:
     require_supported_model(request, backend)
+    guardrail_level = request.guardrail_level or settings.guardrail_level
     start = perf_counter()
     try:
+        input_result = await guardrails.inspect_input(
+            [message.model_dump() for message in request.messages], guardrail_level
+        )
+    except GuardrailUnavailable as exc:
+        logger.warning("Input guardrail unavailable: %s", exc)
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    if input_result.outcome == "blocked":
+        verdict = build_verdict(guardrail_level, input_result)
+        response = ChatResponse(
+            answer="This message was blocked by the input safety checks.",
+            model=backend.model,
+            latency_ms=round((perf_counter() - start) * 1000, 2),
+            usage=ChatUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0),
+            guardrail=verdict,
+        )
+        return response, f"chatcmpl-{uuid4().hex}"
+
+    latest_prompt = input_result.messages[-1]["content"]
+    try:
         result = await backend.chat(
-            [message.model_dump() for message in request.messages],
+            input_result.messages,
             temperature=request.temperature,
             session_id=session_id,
         )
@@ -82,10 +119,22 @@ async def complete_chat(
         logger.warning("LLM backend request failed: %s", exc)
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
+    answer = result["content"]
+    output_result = None
+    if guardrail_level == "full":
+        try:
+            output_result = await guardrails.inspect_output(latest_prompt, answer, guardrail_level)
+        except GuardrailUnavailable as exc:
+            logger.warning("Output guardrail unavailable; withholding the model response: %s", exc)
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        if output_result.outcome == "blocked":
+            answer = "This response was withheld by the output safety check."
+
+    verdict = build_verdict(guardrail_level, input_result, output_result)
     prompt_tokens = int(result["prompt_tokens"])
     completion_tokens = int(result["completion_tokens"])
     response = ChatResponse(
-        answer=result["content"],
+        answer=answer,
         model=backend.model,
         latency_ms=round((perf_counter() - start) * 1000, 2),
         usage=ChatUsage(
@@ -93,18 +142,24 @@ async def complete_chat(
             completion_tokens=completion_tokens,
             total_tokens=prompt_tokens + completion_tokens,
         ),
+        guardrail=verdict,
+        sanitized_user_message=latest_prompt,
     )
     return response, f"chatcmpl-{uuid4().hex}"
 
 
 @app.get("/health", response_model=HealthResponse)
-async def health(backend: BackendDependency) -> HealthResponse:
+async def health(backend: BackendDependency, guardrails: GuardrailDependency) -> HealthResponse:
     connected = await backend.is_available()
+    classifier_configured = await guardrails.classifier_is_configured()
     return HealthResponse(
         status="ok" if connected else "degraded",
         backend=backend.provider,
         model=backend.model,
         llm_connected=connected,
+        guardrail_level=settings.guardrail_level,
+        guardrail_classifier_backend=settings.llama_guard_backend,
+        guardrail_classifier_configured=classifier_configured,
     )
 
 
@@ -120,9 +175,10 @@ async def list_models(backend: BackendDependency) -> dict[str, object]:
 async def chat(
     request: ChatRequest,
     backend: BackendDependency,
+    guardrails: GuardrailDependency,
     session_id: Annotated[str | None, Header(alias="x-opencode-session")] = None,
 ) -> ChatResponse:
-    response, _ = await complete_chat(request, backend, session_id)
+    response, _ = await complete_chat(request, backend, guardrails, session_id)
     return response
 
 
@@ -130,9 +186,10 @@ async def chat(
 async def openai_chat_completions(
     request: ChatRequest,
     backend: BackendDependency,
+    guardrails: GuardrailDependency,
     session_id: Annotated[str | None, Header(alias="x-opencode-session")] = None,
 ) -> dict[str, object]:
-    response, completion_id = await complete_chat(request, backend, session_id)
+    response, completion_id = await complete_chat(request, backend, guardrails, session_id)
     return {
         "id": completion_id,
         "object": "chat.completion",
@@ -142,7 +199,7 @@ async def openai_chat_completions(
             {
                 "index": 0,
                 "message": {"role": "assistant", "content": response.answer},
-                "finish_reason": "stop",
+                "finish_reason": "content_filter" if response.guardrail.blocked else "stop",
             }
         ],
         "usage": {
@@ -150,4 +207,6 @@ async def openai_chat_completions(
             "completion_tokens": response.usage.completion_tokens,
             "total_tokens": response.usage.total_tokens,
         },
+        "guardrail": response.guardrail.model_dump(),
+        "sanitized_user_message": response.sanitized_user_message,
     }

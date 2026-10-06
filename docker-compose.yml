@@ -9,6 +9,17 @@ services:
       LLM_BACKEND: ${LLM_BACKEND:-ollama}
       OLLAMA_BASE_URL: http://ollama:11434
       OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2:1b}
+      GUARDRAIL_LEVEL: ${GUARDRAIL_LEVEL:-off}
+      LLAMA_GUARD_BACKEND: ${LLAMA_GUARD_BACKEND:-cloudflare}
+      LLAMA_GUARD_BASE_URL: http://ollama:11434
+      LLAMA_GUARD_MODEL: ${LLAMA_GUARD_MODEL:-llama-guard3:1b}
+      LLAMA_GUARD_TIMEOUT_SECONDS: ${LLAMA_GUARD_TIMEOUT_SECONDS:-90}
+      PROMPT_INJECTION_THRESHOLD: ${PROMPT_INJECTION_THRESHOLD:-0.92}
+      CLOUDFLARE_ACCOUNT_ID: ${CLOUDFLARE_ACCOUNT_ID:-}
+      CLOUDFLARE_API_TOKEN: ${CLOUDFLARE_API_TOKEN:-}
+      CLOUDFLARE_LLAMA_GUARD_MODEL: ${CLOUDFLARE_LLAMA_GUARD_MODEL:-@cf/meta/llama-guard-3-8b}
+      CLOUDFLARE_API_BASE_URL: ${CLOUDFLARE_API_BASE_URL:-https://api.cloudflare.com/client/v4}
+      HF_HOME: /models/huggingface
       OPENCODE_GO_BASE_URL: ${OPENCODE_GO_BASE_URL:-https://opencode.ai/zen/go/v1}
       OPENCODE_GO_MODEL: ${OPENCODE_GO_MODEL:-longcat-2.5-preview-free}
       OPENCODE_GO_API_KEY: ${OPENCODE_GO_API_KEY:-}
@@ -16,6 +27,8 @@ services:
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}
     ports:
       - "127.0.0.1:8000:8000"
+    volumes:
+      - hf_cache:/models/huggingface
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 20s
@@ -66,3 +79,4 @@ services:
 volumes:
   postgres_data:
   ollama_data:
+  hf_cache:

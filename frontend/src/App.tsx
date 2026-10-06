@@ -12,6 +12,18 @@ type Message = {
   role: 'user' | 'assistant'
   content: string
   latencyMs?: number
+  guardrail?: GuardrailVerdict
+}
+
+type GuardrailLevel = 'off' | 'scanners' | 'full'
+
+type GuardrailVerdict = {
+  level: GuardrailLevel
+  outcome: 'passed' | 'redacted' | 'blocked'
+  blocked: boolean
+  blocked_by?: string | null
+  category?: string | null
+  latency_ms: number
 }
 
 type Health = {
@@ -19,13 +31,20 @@ type Health = {
   backend: string
   model: string
   llm_connected: boolean
+  guardrail_level: GuardrailLevel
+  guardrail_classifier_backend: 'cloudflare' | 'ollama'
+  guardrail_classifier_configured: boolean
 }
 
 type ChatResponse = {
   answer: string
   model: string
   latency_ms: number
+  guardrail: GuardrailVerdict
+  sanitized_user_message: string | null
 }
+
+type ContextMessage = { role: 'user' | 'assistant'; content: string }
 
 function newSessionId() {
   return globalThis.crypto?.randomUUID?.() ?? `session-${Date.now()}-${Math.random().toString(16).slice(2)}`
@@ -39,12 +58,15 @@ const suggestions = [
 
 function App() {
   const [messages, setMessages] = useState<Message[]>([])
+  const [contextMessages, setContextMessages] = useState<ContextMessage[]>([])
   const [draft, setDraft] = useState('')
   const [busy, setBusy] = useState(false)
   const [streaming, setStreaming] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [health, setHealth] = useState<Health | null>(null)
+  const [guardrailOverride, setGuardrailOverride] = useState<GuardrailLevel | null>(null)
   const [sessionId, setSessionId] = useState(newSessionId)
+  const guardrailLevel = guardrailOverride ?? health?.guardrail_level ?? 'off'
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const endRef = useRef<HTMLDivElement>(null)
 
@@ -77,6 +99,7 @@ function App() {
     if (!content || busy) return
 
     const nextMessages: Message[] = [...messages, { role: 'user', content }]
+    const requestMessages: ContextMessage[] = [...contextMessages, { role: 'user', content }]
     setMessages(nextMessages)
     setDraft('')
     setBusy(true)
@@ -91,7 +114,8 @@ function App() {
           'x-opencode-session': sessionId,
         },
         body: JSON.stringify({
-          messages: nextMessages.map(({ role, content: message }) => ({ role, content: message })),
+          messages: requestMessages,
+          guardrail_level: guardrailLevel,
         }),
       })
       const data = (await response.json()) as ChatResponse | { detail?: string }
@@ -101,7 +125,18 @@ function App() {
       }
       const result = data as ChatResponse
       const answer = result.answer || 'The model returned an empty response.'
-      const assistantMessage: Message = { role: 'assistant', content: '', latencyMs: result.latency_ms }
+      if (result.sanitized_user_message !== null) {
+        setContextMessages([
+          ...requestMessages,
+          { role: 'assistant', content: answer },
+        ])
+      }
+      const assistantMessage: Message = {
+        role: 'assistant',
+        content: '',
+        latencyMs: result.latency_ms,
+        guardrail: result.guardrail,
+      }
       const wordChunks = answer.match(/\S+\s*/g) ?? [answer]
       let visibleAnswer = ''
 
@@ -136,9 +171,11 @@ function App() {
   const startNewChat = () => {
     if (!busy) {
       setMessages([])
+      setContextMessages([])
       setDraft('')
       setError(null)
       setSessionId(newSessionId())
+      setGuardrailOverride(null)
       textareaRef.current?.focus()
     }
   }
@@ -182,6 +219,26 @@ function App() {
               <span className="active-model-label">MODEL</span>
               <span className="active-model-name">{health?.model ?? 'Not detected'}</span>
             </div>
+            <label className="guardrail-mode" title="Select the checks applied to each message">
+              <span>GUARDRAILS</span>
+              <select
+                value={guardrailLevel}
+                onChange={(event) => setGuardrailOverride(event.target.value as GuardrailLevel)}
+                aria-label="Guardrail mode"
+              >
+                <option value="off">Off</option>
+                <option value="scanners">Scanners</option>
+                <option
+                  value="full"
+                  disabled={!health?.guardrail_classifier_configured && guardrailLevel !== 'full'}
+                  title={health?.guardrail_classifier_backend === 'cloudflare'
+                    ? 'Full mode needs Cloudflare Workers AI credentials.'
+                    : 'Full mode requires the local llama-guard3:1b model.'}
+                >
+                  {health?.guardrail_classifier_configured ? 'Full' : 'Full · setup needed'}
+                </option>
+              </select>
+            </label>
             <div className={`connection-status ${health?.llm_connected ? 'connected' : ''}`}>
               <span className="status-dot" />
               {health?.llm_connected ? 'Connected' : 'Waiting for model'}
@@ -218,6 +275,22 @@ function App() {
                       <strong>{message.role === 'assistant' ? 'Guardrail Lab' : 'You'}</strong>
                       {message.latencyMs !== undefined && <span>{(message.latencyMs / 1000).toFixed(2)}s</span>}
                     </div>
+                    {message.guardrail && (
+                      <div className={`guardrail-verdict ${message.guardrail.outcome}`}>
+                        <ShieldCheck size={13} />
+                        <span>
+                          {message.guardrail.outcome === 'blocked'
+                            ? `Blocked · ${message.guardrail.blocked_by ?? 'safety check'}`
+                            : message.guardrail.outcome === 'redacted'
+                              ? 'Sensitive value redacted'
+                              : message.guardrail.level === 'off'
+                                ? 'Baseline · guardrails off'
+                                : `${message.guardrail.level} checks passed`}
+                        </span>
+                        <span className="guardrail-latency">{message.guardrail.latency_ms} ms</span>
+                        {message.guardrail.category && <span className="guardrail-category">{message.guardrail.category}</span>}
+                      </div>
+                    )}
                     {message.role === 'assistant' ? (
                       <div className="markdown-body">
                         <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeSanitize]}>
@@ -249,6 +322,14 @@ function App() {
           {error && <div className="error-banner" role="alert">{error}</div>}
           {!health?.llm_connected && messages.length === 0 && (
             <div className="setup-hint"><span className="hint-icon"><Check size={13} /></span> {health?.backend === 'opencode-go' ? 'Configure OPENCODE_GO_API_KEY to connect your Go account.' : 'Start Ollama and pull the configured model to begin chatting.'}</div>
+          )}
+          {guardrailLevel === 'full' && !health?.guardrail_classifier_configured && messages.length === 0 && (
+            <div className="setup-hint guardrail-hint">
+              <span className="hint-icon"><Check size={13} /></span>
+              {health?.guardrail_classifier_backend === 'cloudflare'
+                ? 'Configure CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN in .env.'
+                : <>Enable the Ollama profile, then run <code>make guard-model-pull</code>.</>}
+            </div>
           )}
           <form className="composer" onSubmit={onSubmit}>
             <textarea

@@ -14,7 +14,9 @@ COPY pyproject.toml uv.lock README.md ./
 COPY src ./src
 RUN uv sync --frozen --no-dev
 
-RUN useradd --create-home --uid 10001 appuser
+RUN useradd --create-home --uid 10001 appuser \
+    && mkdir -p /models/huggingface \
+    && chown -R appuser:appuser /models
 USER appuser
 
 EXPOSE 8000

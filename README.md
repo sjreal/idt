@@ -4,13 +4,15 @@ A local LLM playground and reproducible study of open-source guardrails. The pla
 
 ## Status
 
-**P1 complete:** FastAPI chat API, Ollama and optional OpenCode Go backends, OpenAI-compatible chat-completions route, React chat UI, tests, and Compose services. Assistant replies render sanitized GitHub-style Markdown. The UI simulates word-by-word typing after receiving the complete API response; HTTP streaming is not implemented yet. Guardrails and the experiment harness are follow-on phases.
+**P2 complete:** FastAPI chat API, Ollama and optional OpenCode Go generation backends, Cloudflare Workers AI and optional Ollama Llama Guard classifiers, OpenAI-compatible chat-completions route, React chat UI, configurable input/output guardrails, and verdict reporting. Assistant replies render sanitized GitHub-style Markdown. The UI simulates word-by-word typing after receiving the complete API response; HTTP streaming is not implemented yet. The experiment harness is a follow-on phase.
 
 ## Stack
 
 - Python 3.12, FastAPI, Uvicorn, HTTPX, managed and locked with [uv](https://docs.astral.sh/uv/)
 - React, TypeScript, Vite, Tailwind CSS, shadcn/ui, React Markdown
-- Ollama with a local model, or an optional OpenCode Go API backend
+- Ollama or OpenCode Go for chat generation
+- Cloudflare Workers AI for remote Llama Guard classification by default, with local Ollama as an optional alternative
+- LLM Guard PromptInjection and Secrets scanners; PyTorch is pinned to CPU wheels to avoid CUDA downloads
 - Docker Compose for the local stack
 
 ## Requirements
@@ -74,6 +76,49 @@ make dev
 ```
 
 No Ollama model pull is needed in Go mode. If an Ollama container was already started, stop that unused service with `docker compose stop ollama`. The app sends a custom `User-Agent` and a stable `x-opencode-session` header for each chat. Go is intended for coding-agent-style traffic; make sure your use follows its current terms and guidance.
+
+## Guardrail modes
+
+The chat page's **Guardrails** selector applies a mode per request. `GUARDRAIL_LEVEL` in `.env` supplies the initial/default mode:
+
+- **Off:** baseline, no guardrail checks.
+- **Scanners:** LLM Guard's local PromptInjection scanner blocks detected prompt injections; its Secrets scanner redacts detected secrets before sending the prompt to the generation model.
+- **Full:** Scanners plus Llama Guard 3 input and output classification. By default this runs through Cloudflare Workers AI (`@cf/meta/llama-guard-3-8b`); unsafe input is stopped before generation and unsafe model output is withheld.
+
+Each request checks only its newest user turn. The chat UI retains approved, sanitized turns as model context, but does not resend a blocked input on the next turn. The API therefore requires the last message in each request to be the new user turn.
+
+### Cloudflare Workers AI (default Full-mode classifier)
+
+Create a Workers AI API token and copy your Cloudflare Account ID from **Dashboard → Workers AI → Use REST API**. If creating a custom token, Cloudflare requires Workers AI Read and Edit permissions. Keep both values in the ignored `.env` file; never paste the token into chat or commit it. See Cloudflare's [REST API setup guide](https://developers.cloudflare.com/workers-ai/get-started/rest-api/).
+
+Set these in `.env`:
+
+```dotenv
+LLAMA_GUARD_BACKEND=cloudflare
+CLOUDFLARE_ACCOUNT_ID=your-account-id
+CLOUDFLARE_API_TOKEN=your-workers-ai-token
+CLOUDFLARE_LLAMA_GUARD_MODEL=@cf/meta/llama-guard-3-8b
+```
+
+With OpenCode Go as the generation backend, set `COMPOSE_PROFILES=` so Ollama is not started. Rebuild/restart with `make dev`. Once `/health` reports `guardrail_classifier_configured: true`, refresh the chat page and select **Full**. That health field confirms the account ID and token are configured; actual permissions, availability, and quota are checked when a guardrail request is made.
+
+Workers AI's Free plan includes 10,000 Neurons per day, shared with other Workers AI use. After that quota is exhausted, Free-plan requests fail; a Workers Paid plan can bill usage above the free allocation. See the current [pricing](https://developers.cloudflare.com/workers-ai/platform/pricing/) and [model page](https://developers.cloudflare.com/workers-ai/models/llama-guard-3-8b/). Full-mode moderation sends user prompts and generated answers to Cloudflare. The main answer-generation provider remains independently selected with `LLM_BACKEND`.
+
+### Local Ollama classifier (optional alternative)
+
+To keep moderation local instead of sending it to Cloudflare, use:
+
+```dotenv
+LLAMA_GUARD_BACKEND=ollama
+COMPOSE_PROFILES=ollama
+LLAMA_GUARD_MODEL=llama-guard3:1b
+```
+
+Then run `make dev` and `make guard-model-pull`. The safety model (about 1.6 GB) is stored in Ollama's Docker volume. The LLM Guard prompt-injection weights are downloaded on first use and cached in `hf_cache`. This requires several GB of Docker memory and disk. For Scanner mode alone, no Ollama safety model is needed.
+
+The first API image build installs CPU-only PyTorch and the scanner runtime; it is larger and slower to build than the P1 image, but does not download CUDA libraries. Rebuilding after that uses Docker's layer cache.
+
+If an enabled guardrail can't run, the API fails closed and returns an error rather than silently bypassing the check. Verdict metadata includes the selected mode, pass/redact/block outcome, scanner/category, and guardrail latency; it appears on each assistant turn and is also included in API responses.
 
 ## Start, update, inspect, and stop
 
@@ -164,7 +209,7 @@ Point compatible clients and evaluation tools such as garak at `http://localhost
 
 ### Health
 
-`GET /health` reports API status, selected backend/model, and whether that model is available. The Compose health check stays healthy while a local model is being pulled or Go credentials are being configured, so the UI can display setup guidance.
+`GET /health` reports API status, selected generation backend/model, configured guardrail level, classifier backend, and whether the Llama Guard backend is configured. The Compose health check stays healthy while credentials are being configured, so the UI can display setup guidance.
 
 ## Development checks
 
