@@ -35,6 +35,7 @@ def get_settings() -> "Settings":
         ).rstrip("/"),
         prompt_injection_threshold=float(os.getenv("PROMPT_INJECTION_THRESHOLD", "0.92")),
         request_timeout_seconds=float(os.getenv("LLM_TIMEOUT_SECONDS", "120")),
+        evaluation_results_dir=os.getenv("EVALUATION_RESULTS_DIR", "results"),
         cors_origins=tuple(
             origin.strip()
             for origin in os.getenv(
@@ -65,6 +66,7 @@ class Settings:
         cloudflare_base_url: str,
         prompt_injection_threshold: float,
         request_timeout_seconds: float,
+        evaluation_results_dir: str,
         cors_origins: tuple[str, ...],
     ) -> None:
         self.ollama_base_url = ollama_base_url
@@ -86,4 +88,5 @@ class Settings:
         self.cloudflare_base_url = cloudflare_base_url
         self.prompt_injection_threshold = prompt_injection_threshold
         self.request_timeout_seconds = request_timeout_seconds
+        self.evaluation_results_dir = evaluation_results_dir
         self.cors_origins = cors_origins

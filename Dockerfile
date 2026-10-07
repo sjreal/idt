@@ -10,13 +10,18 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 COPY --from=uv /uv /uvx /bin/
 WORKDIR /app
 
-COPY pyproject.toml uv.lock README.md ./
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-dev --no-install-project
+
+COPY README.md ./
 COPY src ./src
+COPY experiments ./experiments
+COPY data ./data
 RUN uv sync --frozen --no-dev
 
 RUN useradd --create-home --uid 10001 appuser \
-    && mkdir -p /models/huggingface \
-    && chown -R appuser:appuser /models
+    && mkdir -p /models/huggingface /app/results \
+    && chown -R appuser:appuser /models /app/results
 USER appuser
 
 EXPOSE 8000

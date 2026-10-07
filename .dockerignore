@@ -7,6 +7,5 @@ __pycache__
 .env
 frontend
 tests
-data
 results
 _- visual selection (3).png

@@ -1,7 +1,11 @@
-.PHONY: install check backend-check frontend-check test lint compose-config dev down model-pull guard-model-pull api-local frontend-local
+.PHONY: install check backend-check frontend-check test lint compose-config dev down model-pull guard-model-pull api-local frontend-local experiment garak-scan
 
 MODEL ?= llama3.2:1b
 GUARD_MODEL ?= llama-guard3:1b
+GARAK_MODEL ?= longcat-2.5-preview-free
+GARAK_LEVEL ?= off
+GARAK_MAX_TOKENS ?= 512
+SAMPLE_LIMIT ?= 42
 
 install:
 	uv sync --all-groups
@@ -40,3 +44,14 @@ api-local:
 
 frontend-local:
 	cd frontend && npm run dev
+
+experiment:
+	uv run python -m security_eval.cli --seed 42 --sample-limit $(SAMPLE_LIMIT)
+
+garak-scan:
+	OPENAICOMPATIBLE_API_KEY=local-test uv run --project tools/garak --locked python -m garak \
+		--target_type openai.OpenAICompatible \
+		--target_name "$(GARAK_MODEL)" \
+		--spec "probes.promptinject,probes.encoding" \
+		--seed 42 --generations 1 \
+		--generator_options '{"uri":"http://localhost:8000/v1/","temperature":0,"max_tokens":$(GARAK_MAX_TOKENS),"stop":[],"extra_params":{"guardrail_level":"$(GARAK_LEVEL)"}}'

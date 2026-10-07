@@ -3,11 +3,12 @@
 import logging
 from datetime import UTC, datetime
 from functools import lru_cache
+from pathlib import Path
 from time import perf_counter
 from typing import Annotated
 from uuid import uuid4
 
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 
 from llm_app.backends.base import ChatBackend
@@ -18,8 +19,15 @@ from llm_app.guardrails import (
     GuardrailUnavailable,
     build_verdict,
 )
-from llm_app.schemas import ChatRequest, ChatResponse, ChatUsage, HealthResponse
+from llm_app.schemas import (
+    ChatRequest,
+    ChatResponse,
+    ChatUsage,
+    EvaluationStartRequest,
+    HealthResponse,
+)
 from llm_app.settings import get_settings
+from security_eval.runner import EvaluationAlreadyRunning, EvaluationRunManager
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -45,6 +53,7 @@ def get_backend() -> ChatBackend:
             base_url=settings.ollama_base_url,
             model=settings.ollama_model,
             timeout_seconds=settings.request_timeout_seconds,
+            excluded_models=(settings.llama_guard_model,),
         )
     if settings.llm_backend == "opencode-go":
         return OpenCodeGoBackend(
@@ -67,12 +76,12 @@ def get_guardrail_pipeline() -> GuardrailPipeline:
 GuardrailDependency = Annotated[GuardrailPipeline, Depends(get_guardrail_pipeline)]
 
 
+@lru_cache
+def get_evaluation_manager() -> EvaluationRunManager:
+    return EvaluationRunManager(Path(settings.evaluation_results_dir))
+
+
 def require_supported_model(request: ChatRequest, backend: ChatBackend) -> None:
-    if request.model and request.model != backend.model:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Model '{request.model}' is not configured on this server.",
-        )
     if request.stream:
         raise HTTPException(
             status_code=400,
@@ -87,6 +96,16 @@ async def complete_chat(
     session_id: str | None = None,
 ) -> tuple[ChatResponse, str]:
     require_supported_model(request, backend)
+    try:
+        available_models = await backend.list_models()
+    except ModelServiceError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    selected_model = request.model or backend.model
+    if selected_model not in available_models:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Model '{selected_model}' is not available from the configured provider.",
+        )
     guardrail_level = request.guardrail_level or settings.guardrail_level
     start = perf_counter()
     try:
@@ -101,7 +120,7 @@ async def complete_chat(
         verdict = build_verdict(guardrail_level, input_result)
         response = ChatResponse(
             answer="This message was blocked by the input safety checks.",
-            model=backend.model,
+            model=selected_model,
             latency_ms=round((perf_counter() - start) * 1000, 2),
             usage=ChatUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0),
             guardrail=verdict,
@@ -113,6 +132,9 @@ async def complete_chat(
         result = await backend.chat(
             input_result.messages,
             temperature=request.temperature,
+            max_tokens=request.max_tokens,
+            seed=request.seed,
+            model=selected_model,
             session_id=session_id,
         )
     except ModelServiceError as exc:
@@ -135,7 +157,7 @@ async def complete_chat(
     completion_tokens = int(result["completion_tokens"])
     response = ChatResponse(
         answer=answer,
-        model=backend.model,
+        model=selected_model,
         latency_ms=round((perf_counter() - start) * 1000, 2),
         usage=ChatUsage(
             prompt_tokens=prompt_tokens,
@@ -165,10 +187,91 @@ async def health(backend: BackendDependency, guardrails: GuardrailDependency) ->
 
 @app.get("/v1/models")
 async def list_models(backend: BackendDependency) -> dict[str, object]:
+    try:
+        model_ids = await backend.list_models()
+    except ModelServiceError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     return {
         "object": "list",
-        "data": [{"id": backend.model, "object": "model", "owned_by": "local"}],
+        "data": [
+            {"id": model_id, "object": "model", "owned_by": backend.provider}
+            for model_id in model_ids
+        ],
     }
+
+
+@app.get("/api/evaluations/summary")
+async def evaluation_summary() -> dict[str, object]:
+    manager = get_evaluation_manager()
+    return {**manager.dataset_summary(), "runs": manager.store.list_runs(limit=10)}
+
+
+@app.get("/api/evaluations/runs")
+async def evaluation_runs() -> dict[str, object]:
+    return {"runs": get_evaluation_manager().store.list_runs(limit=50)}
+
+
+@app.post("/api/evaluations/runs", status_code=202)
+async def start_evaluation(
+    request: EvaluationStartRequest,
+    backend: BackendDependency,
+    guardrails: GuardrailDependency,
+) -> dict[str, object]:
+    try:
+        available_models = await backend.list_models()
+    except ModelServiceError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    generation_model = request.generation_model or backend.model
+    if generation_model not in available_models:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Model '{generation_model}' is not available from the configured provider.",
+        )
+    if "full" in request.arms and not await guardrails.classifier_is_configured():
+        raise HTTPException(
+            status_code=400,
+            detail="Configure the guardrail classifier before running the full arm.",
+        )
+    manager = get_evaluation_manager()
+
+    async def call_chat(chat_request: ChatRequest, session_id: str) -> ChatResponse:
+        response, _ = await complete_chat(chat_request, backend, guardrails, session_id)
+        return response
+
+    try:
+        return await manager.start_run(
+            arms=request.arms,
+            seed=request.seed,
+            sample_limit=request.sample_limit,
+            generation_model=generation_model,
+            generation_backend=backend.provider,
+            guardrail_backend=settings.llama_guard_backend,
+            call_chat=call_chat,
+        )
+    except EvaluationAlreadyRunning as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/api/evaluations/runs/{run_id}")
+async def get_evaluation_run(run_id: str) -> dict[str, object]:
+    run = get_evaluation_manager().store.get_run(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Evaluation run not found.")
+    return run
+
+
+@app.get("/api/evaluations/runs/{run_id}/export.csv")
+async def export_evaluation_run(run_id: str) -> Response:
+    csv_content = get_evaluation_manager().store.export_csv(run_id)
+    if csv_content is None:
+        raise HTTPException(status_code=404, detail="Evaluation run not found.")
+    return Response(
+        content=csv_content,
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="evaluation-{run_id}.csv"'},
+    )
 
 
 @app.post("/api/chat", response_model=ChatResponse)

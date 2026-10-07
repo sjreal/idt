@@ -4,7 +4,7 @@ A local LLM playground and reproducible study of open-source guardrails. The pla
 
 ## Status
 
-**P2 complete:** FastAPI chat API, Ollama and optional OpenCode Go generation backends, Cloudflare Workers AI and optional Ollama Llama Guard classifiers, OpenAI-compatible chat-completions route, React chat UI, configurable input/output guardrails, and verdict reporting. Assistant replies render sanitized GitHub-style Markdown. The UI simulates word-by-word typing after receiving the complete API response; HTTP streaming is not implemented yet. The experiment harness is a follow-on phase.
+**P4 complete:** FastAPI chat API, selectable Ollama/OpenCode Go generation models, Cloudflare Workers AI guardrails, LLM Guard scanners, a pinned garak scan command, a reproducible G0/G1/G2 experiment runner, and an evaluation dashboard. Assistant replies render sanitized GitHub-style Markdown. The UI simulates word-by-word typing after receiving the complete API response; HTTP streaming is not implemented yet.
 
 ## Stack
 
@@ -77,7 +77,11 @@ make dev
 
 No Ollama model pull is needed in Go mode. If an Ollama container was already started, stop that unused service with `docker compose stop ollama`. The app sends a custom `User-Agent` and a stable `x-opencode-session` header for each chat. Go is intended for coding-agent-style traffic; make sure your use follows its current terms and guidance.
 
+Generation requests use `LLM_TIMEOUT_SECONDS` (120 seconds by default) per attempt. Transient provider errors, timeouts, and malformed responses are retried at most twice, with 1- and 2-second exponential backoff. Retries may result in additional provider usage; persistent failures return the upstream HTTP status in the chat/evaluation error.
+
 ## Guardrail modes
+
+The chat page's **Model** selector is populated from the active backend's model list. OpenCode Go choices are limited to its Chat Completions-compatible models. Chat and evaluation requests use the selected model, and each run records it.
 
 The chat page's **Guardrails** selector applies a mode per request. `GUARDRAIL_LEVEL` in `.env` supplies the initial/default mode:
 
@@ -119,6 +123,42 @@ Then run `make dev` and `make guard-model-pull`. The safety model (about 1.6 GB)
 The first API image build installs CPU-only PyTorch and the scanner runtime; it is larger and slower to build than the P1 image, but does not download CUDA libraries. Rebuilding after that uses Docker's layer cache.
 
 If an enabled guardrail can't run, the API fails closed and returns an error rather than silently bypassing the check. Verdict metadata includes the selected mode, pass/redact/block outcome, scanner/category, and guardrail latency; it appears on each assistant turn and is also included in API responses.
+
+## Evaluation study
+
+P3/P4 uses a fixed, project-authored dataset at `data/evaluation/v2.jsonl`: 22 attacks and 20 benign tasks covering canary/system-prompt leakage, synthetic PII disclosure, unsafe code generation, multi-turn injection, and encoded injection. The manifest records provenance and SHA-256; the runner checks it before each run. PII-like values and the canary are fictional test markers, not real credentials or personal data.
+
+Open **Security evaluation** from the sidebar. Select G0/G1/G2 arms, sample count, and seed, then click **Run evaluation**. The page asks for confirmation because a full 42-case run makes up to 126 generation requests and Full mode makes additional Cloudflare moderation calls. No experiment runs automatically.
+
+From a terminal, start and monitor the same evaluation with:
+
+```sh
+make experiment                 # all 42 cases, all selected arms
+make experiment SAMPLE_LIMIT=6  # smaller randomized pilot
+```
+
+The runner uses temperature 0, a fixed seed, and a 512-token generation cap. Each run records generation/guardrail provider and model, dataset/config hashes, seed, case results, and timestamps. It calculates exact synthetic-marker attack success by category, benign false-refusal rate (guardrail blocks plus a documented refusal-phrase heuristic), benign expected-term success, latency percentiles, per-arm bootstrap 95% intervals, and paired percentage-point changes vs G0. The heuristic and small custom dataset limit generalization; the intervals describe this fixed sample, not the population of attacks.
+
+Results are saved in the persistent `evaluation_results` Docker volume, available at:
+
+- `GET /api/evaluations/summary`
+- `GET /api/evaluations/runs`
+- `GET /api/evaluations/runs/{id}`
+- `GET /api/evaluations/runs/{id}/export.csv`
+
+The JSONL records include prompts and model responses; use only the included synthetic corpus or other data you are permitted to store. `docker compose down --volumes` also deletes evaluation history.
+
+### Supplementary garak scan
+
+NVIDIA garak 0.17.0 is pinned in its own isolated `tools/garak` uv project to avoid conflicting with LLM Guard's Transformers version. Run the selected prompt-injection/encoding probes against the local OpenAI-compatible endpoint:
+
+```sh
+make garak-scan GARAK_LEVEL=off
+make garak-scan GARAK_LEVEL=scanners
+make garak-scan GARAK_LEVEL=full
+```
+
+Garak writes separate reports and is supplementary to the fixed paired dataset. These commands call the configured generation/guardrail providers and can consume Go and Cloudflare quotas.
 
 ## Start, update, inspect, and stop
 

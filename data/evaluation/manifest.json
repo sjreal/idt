@@ -1,0 +1,7 @@
+{
+  "version": "2.0.0",
+  "file": "v2.jsonl",
+  "sha256": "e50b907cda647f9424d6d24dd755be6e20f7bf8ad4eff986526704eb4b8ef6f8",
+  "records": 42,
+  "provenance": "Original prompts authored for this project. Cases cover synthetic canary/PII disclosure, unsafe code generation/exfiltration, multi-turn and encoded injection, and benign tasks. No real personal data or third-party prompt corpus is redistributed."
+}

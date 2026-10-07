@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import { ArrowDown, ArrowUp, Bot, Check, CircleHelp, GitBranch, LoaderCircle, Plus, ShieldCheck, Sparkles } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import rehypeSanitize from 'rehype-sanitize'
@@ -7,6 +7,7 @@ import { Button } from './components/ui/button'
 import './App.css'
 
 const WORD_STREAM_DELAY_MS = 28
+const EvaluationPage = lazy(() => import('./pages/EvaluationPage').then((module) => ({ default: module.EvaluationPage })))
 
 type Message = {
   role: 'user' | 'assistant'
@@ -36,6 +37,8 @@ type Health = {
   guardrail_classifier_configured: boolean
 }
 
+type ModelListResponse = { data: Array<{ id: string }> }
+
 type ChatResponse = {
   answer: string
   model: string
@@ -64,9 +67,19 @@ function App() {
   const [streaming, setStreaming] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [health, setHealth] = useState<Health | null>(null)
+  const [availableModels, setAvailableModels] = useState<string[]>([])
+  const [modelOverride, setModelOverride] = useState<string | null>(null)
   const [guardrailOverride, setGuardrailOverride] = useState<GuardrailLevel | null>(null)
+  const [activePage, setActivePage] = useState<'chat' | 'evaluation'>('chat')
   const [sessionId, setSessionId] = useState(newSessionId)
   const guardrailLevel = guardrailOverride ?? health?.guardrail_level ?? 'off'
+  const selectedModel = availableModels.length
+    ? modelOverride && availableModels.includes(modelOverride)
+      ? modelOverride
+      : availableModels.includes(health?.model ?? '')
+        ? health?.model ?? availableModels[0]
+        : availableModels[0]
+    : modelOverride ?? health?.model ?? ''
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const endRef = useRef<HTMLDivElement>(null)
 
@@ -89,6 +102,22 @@ function App() {
       window.clearInterval(timer)
     }
   }, [])
+
+  useEffect(() => {
+    let active = true
+    const loadModels = async () => {
+      try {
+        const response = await fetch('/v1/models')
+        if (!response.ok) throw new Error('Model list is unavailable')
+        const result: ModelListResponse = await response.json()
+        if (active) setAvailableModels(result.data.map((model) => model.id))
+      } catch {
+        if (active && health?.model) setAvailableModels([health.model])
+      }
+    }
+    void loadModels()
+    return () => { active = false }
+  }, [health?.model])
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: busy ? 'auto' : 'smooth', block: 'end' })
@@ -115,6 +144,7 @@ function App() {
         },
         body: JSON.stringify({
           messages: requestMessages,
+          model: selectedModel || undefined,
           guardrail_level: guardrailLevel,
         }),
       })
@@ -193,8 +223,18 @@ function App() {
         </Button>
 
         <div className="sidebar-label">WORKSPACE</div>
-        <div className="nav-item active"><Bot size={17} /><span>Chat playground</span></div>
-        <div className="nav-item muted"><ShieldCheck size={17} /><span>Security evaluation</span><span className="soon-tag">SOON</span></div>
+        <button
+          className={`nav-item ${activePage === 'chat' ? 'active' : ''}`}
+          onClick={() => setActivePage('chat')}
+        >
+          <Bot size={17} /><span>Chat playground</span>
+        </button>
+        <button
+          className={`nav-item ${activePage === 'evaluation' ? 'active' : ''}`}
+          onClick={() => setActivePage('evaluation')}
+        >
+          <ShieldCheck size={17} /><span>Security evaluation</span>
+        </button>
 
         <div className="sidebar-bottom">
           <div className="model-card">
@@ -203,7 +243,7 @@ function App() {
               <span>{health?.llm_connected ? 'Model online' : 'Model offline'}</span>
               <CircleHelp size={14} className="help-icon" />
             </div>
-            <div className="model-name">{health?.model ?? 'Configured model'}</div>
+            <div className="model-name">{selectedModel || 'Loading model list…'}</div>
           </div>
           <a className="github-link" href="https://github.com/sjreal/idt" target="_blank" rel="noreferrer">
             <GitBranch size={16} /> Project repository <ArrowDown size={13} className="external-arrow" />
@@ -211,13 +251,23 @@ function App() {
         </div>
       </aside>
 
-      <section className="main-panel">
+      {activePage === 'chat' ? <section className="main-panel">
         <header className="topbar">
           <div className="breadcrumb"><span>Playground</span><span className="breadcrumb-divider">/</span><strong>Chat</strong></div>
           <div className="topbar-right">
-            <div className="active-model" title={`Current model: ${health?.model ?? 'not detected'}`}>
+            <div className="active-model" title={`Current model: ${selectedModel || 'not detected'}`}>
               <span className="active-model-label">MODEL</span>
-              <span className="active-model-name">{health?.model ?? 'Not detected'}</span>
+              <select
+                className="active-model-select"
+                aria-label="Generation model"
+                value={selectedModel}
+                onChange={(event) => setModelOverride(event.target.value)}
+                disabled={!availableModels.length}
+              >
+                {(availableModels.length ? availableModels : [health?.model ?? 'Loading models…']).map((model) => (
+                  <option key={model} value={model}>{model}</option>
+                ))}
+              </select>
             </div>
             <label className="guardrail-mode" title="Select the checks applied to each message">
               <span>GUARDRAILS</span>
@@ -354,7 +404,7 @@ function App() {
           </form>
           <div className="disclaimer">AI responses can be inaccurate. Requests are sent to the configured model provider.</div>
         </div>
-      </section>
+      </section> : <section className="main-panel"><Suspense fallback={<div className="evaluation-loading">Loading evaluation dashboard…</div>}><EvaluationPage health={health} generationModel={selectedModel} availableModels={availableModels} onGenerationModelChange={setModelOverride} onBackToChat={() => setActivePage('chat')} /></Suspense></section>}
     </main>
   )
 }

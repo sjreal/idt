@@ -1,5 +1,6 @@
 import asyncio
 import json
+import time
 from collections.abc import Sequence
 from typing import Any
 
@@ -20,6 +21,7 @@ from llm_app.guardrails import (
 from llm_app.main import app, get_backend, get_guardrail_pipeline
 from llm_app.schemas import GuardrailFinding
 from llm_app.settings import get_settings
+from security_eval.runner import EvaluationRunManager
 
 
 class FakeBackend:
@@ -29,21 +31,29 @@ class FakeBackend:
     def __init__(self) -> None:
         self.calls = 0
         self.last_messages: list[dict[str, str]] = []
+        self.last_model: str | None = None
 
     async def chat(
         self,
         messages: Sequence[dict[str, str]],
         temperature: float | None = None,
+        max_tokens: int | None = None,
+        seed: int | None = None,
+        model: str | None = None,
         session_id: str | None = None,
     ) -> dict[str, Any]:
         self.calls += 1
         self.last_messages = list(messages)
+        self.last_model = model
         assert messages[-1]["role"] == "user"
         assert temperature is None or 0 <= temperature <= 2
         return {"content": "Hello from the fake model.", "prompt_tokens": 5, "completion_tokens": 5}
 
     async def is_available(self) -> bool:
         return True
+
+    async def list_models(self) -> list[str]:
+        return ["test-model", "alt-model"]
 
 
 class FakeGuardrails:
@@ -86,6 +96,56 @@ def test_health_reports_backend_status() -> None:
     app.dependency_overrides.clear()
 
 
+def test_evaluation_summary_exposes_fixed_dataset_manifest() -> None:
+    with get_test_client() as client:
+        response = client.get("/api/evaluations/summary")
+
+    assert response.status_code == 200
+    assert response.json()["version"] == "2.0.0"
+    assert response.json()["attacks"] == 22
+    assert response.json()["benign"] == 20
+    app.dependency_overrides.clear()
+
+
+def test_evaluation_api_starts_and_persists_a_local_run(tmp_path, monkeypatch) -> None:
+    manager = EvaluationRunManager(tmp_path)
+    monkeypatch.setattr("llm_app.main.get_evaluation_manager", lambda: manager)
+    with get_test_client() as client:
+        response = client.post(
+            "/api/evaluations/runs",
+            json={"arms": ["off"], "seed": 42, "sample_limit": 1},
+        )
+        assert response.status_code == 202
+        run_id = response.json()["id"]
+
+        run = None
+        for _ in range(50):
+            detail = client.get(f"/api/evaluations/runs/{run_id}")
+            assert detail.status_code == 200
+            run = detail.json()
+            if run["status"] not in {"queued", "running"}:
+                break
+            time.sleep(0.01)
+
+    assert run is not None
+    assert run["status"] == "completed"
+    assert run["results_written"] == 1
+    assert list(tmp_path.iterdir())
+    app.dependency_overrides.clear()
+
+
+def test_full_evaluation_requires_classifier_credentials() -> None:
+    with get_test_client() as client:
+        response = client.post(
+            "/api/evaluations/runs",
+            json={"arms": ["off", "full"], "seed": 42},
+        )
+
+    assert response.status_code == 400
+    assert "classifier" in response.json()["detail"]
+    app.dependency_overrides.clear()
+
+
 def test_native_chat_returns_answer_and_usage() -> None:
     with get_test_client() as client:
         response = client.post("/api/chat", json={"messages": [{"role": "user", "content": "Hi"}]})
@@ -99,6 +159,20 @@ def test_native_chat_returns_answer_and_usage() -> None:
     assert body["guardrail"]["level"] == "off"
     assert body["guardrail"]["outcome"] == "passed"
     assert body["sanitized_user_message"] == "Hi"
+    app.dependency_overrides.clear()
+
+
+def test_chat_can_select_model_from_provider_list() -> None:
+    backend = FakeBackend()
+    with get_test_client(backend) as client:
+        response = client.post(
+            "/api/chat",
+            json={"model": "alt-model", "messages": [{"role": "user", "content": "Hi"}]},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["model"] == "alt-model"
+    assert backend.last_model == "alt-model"
     app.dependency_overrides.clear()
 
 
@@ -128,7 +202,7 @@ def test_openai_models_lists_configured_model() -> None:
         response = client.get("/v1/models")
 
     assert response.status_code == 200
-    assert response.json()["data"][0]["id"] == "test-model"
+    assert [item["id"] for item in response.json()["data"]] == ["test-model", "alt-model"]
     app.dependency_overrides.clear()
 
 
@@ -164,6 +238,9 @@ def test_backend_error_is_returned_as_bad_gateway() -> None:
             self,
             messages: Sequence[dict[str, str]],
             temperature: float | None = None,
+            max_tokens: int | None = None,
+            seed: int | None = None,
+            model: str | None = None,
             session_id: str | None = None,
         ) -> dict[str, Any]:
             raise ModelServiceError("Ollama is unavailable.")
@@ -347,6 +424,127 @@ def test_opencode_go_uses_compatible_endpoint_and_session_headers() -> None:
     )
 
     assert result == {"content": "Go reply", "prompt_tokens": 8, "completion_tokens": 3}
+
+
+def test_opencode_go_retries_transient_errors_with_exponential_backoff(monkeypatch) -> None:
+    attempts = 0
+    delays: list[float] = []
+
+    async def sleep(delay: float) -> None:
+        delays.append(delay)
+
+    monkeypatch.setattr("llm_app.backends.opencode_go.asyncio.sleep", sleep)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        if attempts < 3:
+            return httpx.Response(502, json={"error": "upstream unavailable"})
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": "Recovered"}}]},
+        )
+
+    backend = OpenCodeGoBackend(
+        "https://opencode.ai/zen/go/v1",
+        "kimi-k2.7-code",
+        "test-secret",
+        transport=httpx.MockTransport(handler),
+        retry_backoff_seconds=0.5,
+    )
+
+    result = asyncio.run(backend.chat([{"role": "user", "content": "Hello"}]))
+
+    assert result["content"] == "Recovered"
+    assert attempts == 3
+    assert delays == [0.5, 1.0]
+
+
+def test_opencode_go_retries_malformed_success_response(monkeypatch) -> None:
+    attempts = 0
+    delays: list[float] = []
+
+    async def sleep(delay: float) -> None:
+        delays.append(delay)
+
+    monkeypatch.setattr("llm_app.backends.opencode_go.asyncio.sleep", sleep)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            return httpx.Response(200, json={"choices": []})
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": "Recovered"}}]},
+        )
+
+    backend = OpenCodeGoBackend(
+        "https://opencode.ai/zen/go/v1",
+        "kimi-k2.7-code",
+        "test-secret",
+        transport=httpx.MockTransport(handler),
+        retry_backoff_seconds=0.25,
+    )
+
+    result = asyncio.run(backend.chat([{"role": "user", "content": "Hello"}]))
+
+    assert result["content"] == "Recovered"
+    assert attempts == 2
+    assert delays == [0.25]
+
+
+def test_opencode_go_reports_status_after_retry_limit(monkeypatch) -> None:
+    attempts = 0
+
+    async def sleep(delay: float) -> None:
+        return None
+
+    monkeypatch.setattr("llm_app.backends.opencode_go.asyncio.sleep", sleep)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        return httpx.Response(502, json={"error": "upstream unavailable"})
+
+    backend = OpenCodeGoBackend(
+        "https://opencode.ai/zen/go/v1",
+        "kimi-k2.7-code",
+        "test-secret",
+        transport=httpx.MockTransport(handler),
+    )
+
+    with pytest.raises(ModelServiceError, match="HTTP 502 after 3 attempts"):
+        asyncio.run(backend.chat([{"role": "user", "content": "Hello"}]))
+    assert attempts == 3
+
+
+def test_opencode_go_lists_only_chat_completions_models() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/zen/go/v1/models"
+        assert request.headers["x-opencode-session"] == "guardrail-lab-model-list"
+        return httpx.Response(
+            200,
+            json={
+                "data": [
+                    {"id": "longcat-2.5-preview-free"},
+                    {"id": "gpt-6-luna"},
+                    {"id": "glm-5.3-flash"},
+                ]
+            },
+        )
+
+    backend = OpenCodeGoBackend(
+        "https://opencode.ai/zen/go/v1",
+        "longcat-2.5-preview-free",
+        "test-secret",
+        transport=httpx.MockTransport(handler),
+    )
+
+    assert asyncio.run(backend.list_models()) == [
+        "glm-5.3-flash",
+        "longcat-2.5-preview-free",
+    ]
 
 
 def test_opencode_go_requires_api_key() -> None:

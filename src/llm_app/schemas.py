@@ -20,6 +20,8 @@ class ChatRequest(BaseModel):
     messages: list[ChatMessage] = Field(min_length=1, max_length=100)
     model: str | None = None
     temperature: float | None = Field(default=None, ge=0, le=2)
+    max_tokens: int | None = Field(default=None, ge=1, le=8192)
+    seed: int | None = None
     stream: bool = False
     guardrail_level: GuardrailLevel | None = None
 
@@ -72,3 +74,18 @@ class HealthResponse(BaseModel):
     guardrail_level: GuardrailLevel
     guardrail_classifier_backend: Literal["cloudflare", "ollama"]
     guardrail_classifier_configured: bool
+
+
+class EvaluationStartRequest(BaseModel):
+    arms: list[GuardrailLevel] = Field(
+        default_factory=lambda: ["off", "scanners", "full"], min_length=1, max_length=3
+    )
+    seed: int = 42
+    sample_limit: int | None = Field(default=None, ge=1, le=100)
+    generation_model: str | None = None
+
+    @model_validator(mode="after")
+    def require_unique_arms(self) -> "EvaluationStartRequest":
+        if len(set(self.arms)) != len(self.arms):
+            raise ValueError("Guardrail arms must be unique.")
+        return self

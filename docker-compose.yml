@@ -19,6 +19,7 @@ services:
       CLOUDFLARE_API_TOKEN: ${CLOUDFLARE_API_TOKEN:-}
       CLOUDFLARE_LLAMA_GUARD_MODEL: ${CLOUDFLARE_LLAMA_GUARD_MODEL:-@cf/meta/llama-guard-3-8b}
       CLOUDFLARE_API_BASE_URL: ${CLOUDFLARE_API_BASE_URL:-https://api.cloudflare.com/client/v4}
+      EVALUATION_RESULTS_DIR: /app/results
       HF_HOME: /models/huggingface
       OPENCODE_GO_BASE_URL: ${OPENCODE_GO_BASE_URL:-https://opencode.ai/zen/go/v1}
       OPENCODE_GO_MODEL: ${OPENCODE_GO_MODEL:-longcat-2.5-preview-free}
@@ -29,6 +30,7 @@ services:
       - "127.0.0.1:8000:8000"
     volumes:
       - hf_cache:/models/huggingface
+      - evaluation_results:/app/results
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 20s
@@ -80,3 +82,4 @@ volumes:
   postgres_data:
   ollama_data:
   hf_cache:
+  evaluation_results:
