@@ -27,6 +27,26 @@ def test_junit_summary_counts_results_and_lists_failed_tests(tmp_path, monkeypat
     assert "assertion failed expected true" in result.stdout
 
 
+def test_junit_summary_includes_coverage_when_available(tmp_path, monkeypatch) -> None:
+    monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
+    report = tmp_path / "pytest-report.xml"
+    report.write_text('<testsuite tests="1" time="0.1" />', encoding="utf-8")
+    coverage = tmp_path / "coverage.xml"
+    coverage.write_text(
+        '<coverage lines-covered="8" lines-valid="10" line-rate="0.8" />',
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT), str(report), str(coverage)],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+    assert "**80.0%** line coverage (8/10 lines)." in result.stdout
+
+
 def test_junit_summary_handles_missing_report(tmp_path, monkeypatch) -> None:
     monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
     result = subprocess.run(

@@ -1,0 +1,36 @@
+groups:
+  - name: llm-guardrail-api
+    interval: 30s
+    rules:
+      - alert: LlmApiTargetDown
+        expr: up{job="idt-api"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: LLM Guardrail Lab API is unreachable
+          description: Prometheus has failed to scrape the API for at least one minute.
+
+      - alert: LlmApiElevated5xxRate
+        expr: |
+          (
+            sum(rate(llm_lab_http_requests_total{job="idt-api",status_code=~"5.."}[5m]))
+            /
+            clamp_min(sum(rate(llm_lab_http_requests_total{job="idt-api"}[5m])), 0.000001)
+          ) > 0.05
+          and sum(rate(llm_lab_http_requests_total{job="idt-api"}[5m])) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: API 5xx rate is above 5%
+          description: More than 5% of recent API requests have returned server errors.
+
+      - alert: LlmGenerationProviderFailures
+        expr: sum by (backend,model) (increase(llm_lab_generation_requests_total{outcome="error"}[10m])) >= 3
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: Repeated model-provider failures
+          description: The selected generation provider/model has failed at least three times in ten minutes.

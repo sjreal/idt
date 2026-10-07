@@ -178,7 +178,11 @@ curl 'http://localhost:9090/api/v1/targets'
 
 The `idt-api` target should report `"health":"up"`. To generate safe HTTP activity for the dashboard, call `curl http://localhost:8000/api/evaluations/summary`, then allow about 15–30 seconds for a scrape and refresh. Generation/token panels require a chat request (which may use model-provider quota); guardrail panels require a request with scanners/full mode; evaluation panels require an explicitly started evaluation. Nothing runs automatically.
 
-The dashboard refreshes every 10 seconds and covers API traffic/errors/latency, generation requests/latency/tokens, guardrail outcomes, and active evaluation progress. Metrics use bounded labels and omit prompts, answers, run IDs, and credentials. Counters are process-lifetime; historical experiment results remain in the `evaluation_results` volume. Grafana's admin password is initialized when its data volume is first created; if you need to change it later, sign in and change it in Grafana's profile settings.
+The dashboard refreshes every 10 seconds and covers API health/latency, generation failures/retries/tokens, guardrail outcomes and latency by stage, evaluation case/run status, recent CI history, and firing Prometheus alerts. API metrics use bounded labels and omit prompts, answers, run IDs, and credentials. Counters are process-lifetime; historical experiment results remain in the `evaluation_results` volume. Grafana's admin password is initialized when its data volume is first created; if you need to change it later, sign in and change it in Grafana's profile settings.
+
+The dashboard also includes GitHub Actions history. By default, the exporter polls the public `sjreal/idt` `ci.yml` workflow on `main` every five minutes and reports the latest result, duration, and outcomes for the latest 50 runs. It exports at `http://localhost:9101/metrics`. For a fork or another branch, set `GITHUB_REPOSITORY`, `GITHUB_ACTIONS_WORKFLOW_FILE`, and `GITHUB_ACTIONS_BRANCH` in `.env`. Public repositories need no token; for a private repository, provide an optional fine-grained `GITHUB_ACTIONS_TOKEN` with read-only Actions permission. Never commit the token.
+
+Prometheus evaluates local rules for an API scrape outage, a sustained 5xx rate above 5%, and three model-provider failures in ten minutes; see <http://localhost:9090/alerts>. Rules are visible in Prometheus, but notifications require configuring an Alertmanager/contact point. API CPU and resident memory come from the Prometheus Python process collector. CI history and application metrics use bounded labels; run IDs and prompts are not exported.
 
 Stop only the optional monitoring containers with:
 
@@ -296,7 +300,9 @@ uv sync --all-groups
 make check
 ```
 
-`make check` runs Ruff, pytest, a production frontend build, and Compose configuration validation. GitHub Actions additionally runs frontend lint, Python and npm dependency audits, Gitleaks, builds both runtime images, and scans their OS packages with Trivy. CI writes pytest pass/fail counts and failing test names into the workflow run summary and uploads `pytest-report.xml` as the `python-test-report` artifact (retained for 14 days). The Python audit has explicit exceptions for advisories on versions hard-pinned by LLM Guard 0.3.16; review those exceptions when updating LLM Guard.
+`make check` runs Ruff, pytest, a production frontend build, and Compose configuration validation. GitHub Actions additionally runs frontend lint, Python and npm dependency audits, Gitleaks, builds both runtime images, runs a provider-free container smoke test, generates CycloneDX SBOMs, and scans image OS packages with Trivy. The smoke test uses an empty OpenCode Go key, so `/health` reports disconnected and makes no provider request; it checks the API health/metrics/summary endpoints and frontend proxy without chat or evaluation calls.
+
+CI writes pytest pass/fail counts, failing test names, and coverage percentage to the workflow summary. It uploads `pytest-report.xml` and `coverage.xml` as the `python-test-report` artifact (14 days), and CycloneDX SBOMs for both images as `container-sboms` (90 days). The Python audit has explicit exceptions for advisories on versions hard-pinned by LLM Guard 0.3.16 and an NLTK advisory without a fix; review those exceptions when updating LLM Guard.
 
 ## Research question
 

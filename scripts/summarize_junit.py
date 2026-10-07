@@ -12,7 +12,7 @@ def _count(suites: list[ElementTree.Element], attribute: str) -> int:
     return sum(int(suite.get(attribute, "0")) for suite in suites)
 
 
-def render_summary(report_path: Path) -> str:
+def render_summary(report_path: Path, coverage_path: Path | None = None) -> str:
     if not report_path.exists():
         return (
             "## Python test results\n\n"
@@ -57,15 +57,30 @@ def render_summary(report_path: Path) -> str:
             detail = detail.replace("|", "\\|")[:500]
             lines.append(f"- `{classname}.{name}` — {detail or 'see JUnit artifact'}")
 
+    if coverage_path is not None and coverage_path.exists():
+        coverage = ElementTree.parse(coverage_path).getroot()
+        covered = int(coverage.get("lines-covered", "0"))
+        valid = int(coverage.get("lines-valid", "0"))
+        line_rate = float(coverage.get("line-rate", "0")) * 100
+        lines.extend(
+            [
+                "",
+                "## Python code coverage",
+                "",
+                f"**{line_rate:.1f}%** line coverage ({covered}/{valid} lines).",
+            ]
+        )
+
     return "\n".join(lines) + "\n"
 
 
 def main() -> int:
-    if len(sys.argv) != 2:
-        print("usage: summarize_junit.py REPORT.xml", file=sys.stderr)
+    if len(sys.argv) not in {2, 3}:
+        print("usage: summarize_junit.py REPORT.xml [COVERAGE.xml]", file=sys.stderr)
         return 2
 
-    summary = render_summary(Path(sys.argv[1]))
+    coverage_path = Path(sys.argv[2]) if len(sys.argv) == 3 else None
+    summary = render_summary(Path(sys.argv[1]), coverage_path)
     summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary_path:
         with Path(summary_path).open("a", encoding="utf-8") as summary_file:

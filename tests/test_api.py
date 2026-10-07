@@ -19,6 +19,7 @@ from llm_app.guardrails import (
     ScannerResult,
 )
 from llm_app.main import app, get_backend, get_guardrail_pipeline
+from llm_app.metrics import GENERATION_RETRIES
 from llm_app.schemas import GuardrailFinding
 from llm_app.settings import get_settings
 from security_eval.runner import EvaluationRunManager
@@ -460,6 +461,10 @@ def test_opencode_go_uses_compatible_endpoint_and_session_headers() -> None:
 def test_opencode_go_retries_transient_errors_with_exponential_backoff(monkeypatch) -> None:
     attempts = 0
     delays: list[float] = []
+    retry_metric = GENERATION_RETRIES.labels(
+        "opencode-go", "kimi-k2.7-code", "http_502"
+    )
+    retries_before = retry_metric._value.get()
 
     async def sleep(delay: float) -> None:
         delays.append(delay)
@@ -489,6 +494,7 @@ def test_opencode_go_retries_transient_errors_with_exponential_backoff(monkeypat
     assert result["content"] == "Recovered"
     assert attempts == 3
     assert delays == [0.5, 1.0]
+    assert retry_metric._value.get() - retries_before == 2
 
 
 def test_opencode_go_retries_malformed_success_response(monkeypatch) -> None:

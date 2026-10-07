@@ -24,6 +24,7 @@ from llm_app.metrics import (
     GENERATION_REQUEST_DURATION_SECONDS,
     GENERATION_REQUESTS,
     GENERATION_TOKENS,
+    GUARDRAIL_CHECK_DURATION_SECONDS,
     GUARDRAIL_CHECKS,
     HTTP_REQUEST_DURATION_SECONDS,
     HTTP_REQUESTS,
@@ -144,20 +145,28 @@ async def complete_chat(
         )
     guardrail_level = request.guardrail_level or settings.guardrail_level
     start = perf_counter()
+    input_guardrail_backend = guardrail_metric_backend(guardrail_level)
+    input_guardrail_started_at = perf_counter()
     try:
         input_result = await guardrails.inspect_input(
             [message.model_dump() for message in request.messages], guardrail_level
         )
     except GuardrailUnavailable as exc:
+        GUARDRAIL_CHECK_DURATION_SECONDS.labels(
+            guardrail_level, "input", input_guardrail_backend
+        ).observe(perf_counter() - input_guardrail_started_at)
         GUARDRAIL_CHECKS.labels(
-            guardrail_level, "input", guardrail_metric_backend(guardrail_level), "error"
+            guardrail_level, "input", input_guardrail_backend, "error"
         ).inc()
         logger.warning("Input guardrail unavailable: %s", exc)
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+    GUARDRAIL_CHECK_DURATION_SECONDS.labels(
+        guardrail_level, "input", input_guardrail_backend
+    ).observe(perf_counter() - input_guardrail_started_at)
     GUARDRAIL_CHECKS.labels(
         guardrail_level,
         "input",
-        guardrail_metric_backend(guardrail_level),
+        input_guardrail_backend,
         input_result.outcome,
     ).inc()
 
@@ -206,18 +215,26 @@ async def complete_chat(
     answer = result["content"]
     output_result = None
     if guardrail_level == "full":
+        output_guardrail_backend = guardrail_metric_backend(guardrail_level)
+        output_guardrail_started_at = perf_counter()
         try:
             output_result = await guardrails.inspect_output(latest_prompt, answer, guardrail_level)
         except GuardrailUnavailable as exc:
+            GUARDRAIL_CHECK_DURATION_SECONDS.labels(
+                guardrail_level, "output", output_guardrail_backend
+            ).observe(perf_counter() - output_guardrail_started_at)
             GUARDRAIL_CHECKS.labels(
-                guardrail_level, "output", guardrail_metric_backend(guardrail_level), "error"
+                guardrail_level, "output", output_guardrail_backend, "error"
             ).inc()
             logger.warning("Output guardrail unavailable; withholding the model response: %s", exc)
             raise HTTPException(status_code=503, detail=str(exc)) from exc
+        GUARDRAIL_CHECK_DURATION_SECONDS.labels(
+            guardrail_level, "output", output_guardrail_backend
+        ).observe(perf_counter() - output_guardrail_started_at)
         GUARDRAIL_CHECKS.labels(
             guardrail_level,
             "output",
-            guardrail_metric_backend(guardrail_level),
+            output_guardrail_backend,
             output_result.outcome,
         ).inc()
         if output_result.outcome == "blocked":

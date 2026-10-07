@@ -60,4 +60,4 @@ observability-up:
 	docker compose --profile observability up --build -d
 
 observability-down:
-	docker compose --profile observability stop grafana prometheus
+	docker compose --profile observability stop grafana prometheus github-actions-exporter

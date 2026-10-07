@@ -23,16 +23,21 @@ jobs:
       - run: uv lock --project tools/garak --check --python 3.12
       - run: uv run ruff check .
       - name: Run Python tests
-        run: uv run pytest -q --junitxml=pytest-report.xml
+        run: >-
+          uv run pytest -q --junitxml=pytest-report.xml
+          --cov=llm_app --cov=security_eval
+          --cov-report=term-missing --cov-report=xml:coverage.xml
       - name: Summarize Python tests
         if: always()
-        run: python scripts/summarize_junit.py pytest-report.xml
+        run: python scripts/summarize_junit.py pytest-report.xml coverage.xml
       - name: Upload Python test report
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: python-test-report
-          path: pytest-report.xml
+          path: |
+            pytest-report.xml
+            coverage.xml
           if-no-files-found: warn
           retention-days: 14
       # LLM Guard 0.3.16 pins Transformers 4.51.3; these are allowlisted until
@@ -100,6 +105,33 @@ jobs:
         run: docker build --pull --file Dockerfile --tag idt-llm-cicd-api:ci .
       - name: Build frontend image
         run: docker build --pull --file frontend/Dockerfile --tag idt-llm-cicd-frontend:ci frontend
+      - name: Provider-free container smoke test
+        run: bash scripts/container_smoke_test.sh
+      - name: Generate CycloneDX SBOMs
+        run: |
+          mkdir -p "$RUNNER_TEMP/sbom"
+          docker save idt-llm-cicd-api:ci --output "$RUNNER_TEMP/sbom/api-image.tar"
+          docker run --rm \
+            --volume "$RUNNER_TEMP/sbom:/reports" \
+            aquasec/trivy:0.58.2 \
+            image --input /reports/api-image.tar --format cyclonedx \
+            --output /reports/api-image.cdx.json
+          rm "$RUNNER_TEMP/sbom/api-image.tar"
+          docker save idt-llm-cicd-frontend:ci --output "$RUNNER_TEMP/sbom/frontend-image.tar"
+          docker run --rm \
+            --volume "$RUNNER_TEMP/sbom:/reports" \
+            aquasec/trivy:0.58.2 \
+            image --input /reports/frontend-image.tar --format cyclonedx \
+            --output /reports/frontend-image.cdx.json
+          rm "$RUNNER_TEMP/sbom/frontend-image.tar"
+      - name: Upload container SBOMs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: container-sboms
+          path: ${{ runner.temp }}/sbom/*.cdx.json
+          if-no-files-found: warn
+          retention-days: 90
       - name: Scan API image
         run: |
           mkdir -p "$RUNNER_TEMP/trivy-cache"

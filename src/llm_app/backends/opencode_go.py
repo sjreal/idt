@@ -10,6 +10,7 @@ from uuid import uuid4
 import httpx
 
 from llm_app.backends.ollama import ModelServiceError
+from llm_app.metrics import GENERATION_RETRIES
 
 logger = logging.getLogger(__name__)
 RETRYABLE_STATUS_CODES = {408, 425, 429, 500, 502, 503, 504, 520, 521, 522, 523, 524}
@@ -118,7 +119,9 @@ class OpenCodeGoBackend:
 
                 status = response.status_code
                 if status in RETRYABLE_STATUS_CODES:
-                    if await self._wait_before_retry(attempt, status=status):
+                    if await self._wait_before_retry(
+                        attempt, selected_model, status=status
+                    ):
                         continue
                     raise ModelServiceError(
                         f"OpenCode Go returned HTTP {status} after {attempt + 1} attempts."
@@ -136,13 +139,17 @@ class OpenCodeGoBackend:
                     data = response.json()
                     return self._parse_response(data)
                 except (ValueError, _InvalidModelResponse) as exc:
-                    if await self._wait_before_retry(attempt, invalid_response=True):
+                    if await self._wait_before_retry(
+                        attempt, selected_model, invalid_response=True
+                    ):
                         continue
                     raise ModelServiceError(
                         f"{exc} (after {attempt + 1} attempts)."
                     ) from exc
             except httpx.RequestError as exc:
-                if await self._wait_before_retry(attempt, request_error=True):
+                if await self._wait_before_retry(
+                    attempt, selected_model, request_error=True
+                ):
                     continue
                 raise ModelServiceError(
                     f"Cannot reach the OpenCode Go API after {attempt + 1} attempts."
@@ -153,6 +160,7 @@ class OpenCodeGoBackend:
     async def _wait_before_retry(
         self,
         attempt: int,
+        model: str,
         *,
         status: int | None = None,
         invalid_response: bool = False,
@@ -170,6 +178,16 @@ class OpenCodeGoBackend:
             if request_error
             else "provider error"
         )
+        metric_reason = (
+            f"http_{status}"
+            if status is not None
+            else "invalid_response"
+            if invalid_response
+            else "request_error"
+            if request_error
+            else "provider_error"
+        )
+        GENERATION_RETRIES.labels(self.provider, model, metric_reason).inc()
         logger.warning(
             "OpenCode Go %s; retry %s/%s in %.1f seconds",
             reason,

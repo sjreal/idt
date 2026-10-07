@@ -2,6 +2,7 @@ name: idt-llm-cicd
 
 services:
   api:
+    image: idt-llm-cicd-api:latest
     build:
       context: .
       dockerfile: Dockerfile
@@ -58,6 +59,7 @@ services:
       - "127.0.0.1:9090:9090"
     volumes:
       - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./observability/alerts.yml:/etc/prometheus/alerts.yml:ro
       - prometheus_data:/prometheus
     depends_on:
       api:
@@ -78,6 +80,20 @@ services:
       - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
     depends_on:
       - prometheus
+
+  github-actions-exporter:
+    image: idt-llm-cicd-api:latest
+    profiles: ["observability"]
+    command: ["uv", "run", "--no-sync", "python", "-m", "llm_app.github_actions_exporter"]
+    environment:
+      GITHUB_REPOSITORY: ${GITHUB_REPOSITORY:-sjreal/idt}
+      GITHUB_ACTIONS_WORKFLOW_FILE: ${GITHUB_ACTIONS_WORKFLOW_FILE:-ci.yml}
+      GITHUB_ACTIONS_BRANCH: ${GITHUB_ACTIONS_BRANCH:-main}
+      GITHUB_ACTIONS_TOKEN: ${GITHUB_ACTIONS_TOKEN:-}
+      GITHUB_ACTIONS_POLL_SECONDS: ${GITHUB_ACTIONS_POLL_SECONDS:-300}
+      GITHUB_ACTIONS_METRICS_PORT: 9101
+    ports:
+      - "127.0.0.1:9101:9101"
 
   postgres:
     image: postgres:17-alpine

@@ -35,8 +35,12 @@
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
       "id": 3,
       "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi", "sort": "desc" } },
-      "targets": [{ "expr": "histogram_quantile(0.95, sum by (le, endpoint) (rate(llm_lab_http_request_duration_seconds_bucket[5m])))", "legendFormat": "{{endpoint}} p95", "refId": "A" }],
-      "title": "API latency (p95)",
+      "targets": [
+        { "expr": "histogram_quantile(0.50, sum by (le, endpoint) (rate(llm_lab_http_request_duration_seconds_bucket[5m])))", "legendFormat": "{{endpoint}} p50", "refId": "A" },
+        { "expr": "histogram_quantile(0.95, sum by (le, endpoint) (rate(llm_lab_http_request_duration_seconds_bucket[5m])))", "legendFormat": "{{endpoint}} p95", "refId": "B" },
+        { "expr": "histogram_quantile(0.99, sum by (le, endpoint) (rate(llm_lab_http_request_duration_seconds_bucket[5m])))", "legendFormat": "{{endpoint}} p99", "refId": "C" }
+      ],
+      "title": "API latency (p50 / p95 / p99)",
       "type": "timeseries"
     },
     {
@@ -98,6 +102,156 @@
       "targets": [{ "expr": "sum by (arm, kind, outcome) (rate(llm_lab_evaluation_cases_total[5m]))", "legendFormat": "{{arm}} · {{kind}} · {{outcome}}", "refId": "A" }],
       "title": "Evaluation case completion rate",
       "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 32 },
+      "id": 10,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [{ "expr": "sum by (model) (increase(llm_lab_generation_requests_total{outcome=\"error\"}[1h]))", "legendFormat": "{{model}}", "refId": "A" }],
+      "title": "Generation failures by model (1h)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 32 },
+      "id": 11,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [{ "expr": "sum by (model, reason) (increase(llm_lab_generation_retries_total[1h]))", "legendFormat": "{{model}} · {{reason}}", "refId": "A" }],
+      "title": "Generation retries (1h)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "min": 0, "max": 1, "decimals": 0 }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 4, "x": 16, "y": 32 },
+      "id": 12,
+      "options": { "colorMode": "value", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } },
+      "targets": [{ "expr": "up{job=\"idt-api\"}", "legendFormat": "API scrape", "refId": "A" }],
+      "title": "API target up",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 4, "x": 20, "y": 32 },
+      "id": 13,
+      "options": { "colorMode": "value", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } },
+      "targets": [{ "expr": "time() - process_start_time_seconds", "legendFormat": "uptime", "refId": "A" }],
+      "title": "API process uptime",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "cores" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 40 },
+      "id": 14,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [{ "expr": "rate(process_cpu_seconds_total[5m])", "legendFormat": "API CPU cores", "refId": "A" }],
+      "title": "API process CPU",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 40 },
+      "id": 15,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [{ "expr": "process_resident_memory_bytes", "legendFormat": "API resident memory", "refId": "A" }],
+      "title": "API process memory",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 48 },
+      "id": 16,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [{ "expr": "histogram_quantile(0.95, sum by (le, level, stage, backend) (rate(llm_lab_guardrail_check_duration_seconds_bucket[5m])))", "legendFormat": "{{level}} · {{stage}} · {{backend}} p95", "refId": "A" }],
+      "title": "Guardrail latency by mode and stage (p95)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 48 },
+      "id": 17,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [{ "expr": "sum by (arm) (increase(llm_lab_evaluation_cases_total{outcome=\"error\"}[1h]))", "legendFormat": "{{arm}} errors", "refId": "A" }],
+      "title": "Evaluation errors by arm (1h)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 48 },
+      "id": 18,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [{ "expr": "sum by (status) (increase(llm_lab_evaluation_runs_total[24h]))", "legendFormat": "{{status}}", "refId": "A" }],
+      "title": "Evaluation runs by terminal status (24h)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short", "min": 0, "max": 1 }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 56 },
+      "id": 19,
+      "options": { "colorMode": "value", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } },
+      "targets": [{ "expr": "llm_lab_github_actions_latest_run_status", "legendFormat": "{{workflow}} · {{branch}} · {{status}} · {{conclusion}}", "refId": "A" }],
+      "title": "Latest GitHub Actions run",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 56 },
+      "id": 20,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [{ "expr": "llm_lab_github_actions_latest_run_duration_seconds", "legendFormat": "{{workflow}} · {{branch}}", "refId": "A" }],
+      "title": "Latest CI run duration",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 56 },
+      "id": 21,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [{ "expr": "llm_lab_github_actions_recent_runs", "legendFormat": "{{conclusion}}", "refId": "A" }],
+      "title": "Recent CI outcomes (latest 50 runs)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 64 },
+      "id": 22,
+      "options": { "colorMode": "value", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } },
+      "targets": [{ "expr": "time() - llm_lab_github_actions_latest_run_timestamp_seconds", "legendFormat": "seconds since last CI run", "refId": "A" }],
+      "title": "Time since latest CI run",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "min": 0, "max": 1 }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 64 },
+      "id": 23,
+      "options": { "colorMode": "value", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } },
+      "targets": [{ "expr": "llm_lab_github_actions_exporter_up", "legendFormat": "GitHub API exporter", "refId": "A" }],
+      "title": "GitHub Actions exporter up",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 64 },
+      "id": 24,
+      "options": { "colorMode": "value", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } },
+      "targets": [{ "expr": "count(ALERTS{alertstate=\"firing\"}) or vector(0)", "legendFormat": "firing alerts", "refId": "A" }],
+      "title": "Firing Prometheus alerts",
+      "type": "stat"
     }
   ],
   "refresh": "10s",
