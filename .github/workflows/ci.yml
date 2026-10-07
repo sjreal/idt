@@ -101,7 +101,7 @@ jobs:
       - name: Build frontend image
         run: docker build --pull --file frontend/Dockerfile --tag idt-llm-cicd-frontend:ci frontend
       - name: Scan API image
-        uses: aquasecurity/trivy-action@v0.28.0
+        uses: aquasecurity/trivy-action@v0.31.0
         with:
           version: v0.58.2
           scan-type: image
@@ -112,7 +112,7 @@ jobs:
           ignore-unfixed: true
           exit-code: "1"
       - name: Scan frontend image
-        uses: aquasecurity/trivy-action@v0.28.0
+        uses: aquasecurity/trivy-action@v0.31.0
         with:
           version: v0.58.2
           scan-type: image
