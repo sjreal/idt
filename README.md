@@ -148,6 +148,44 @@ Results are saved in the persistent `evaluation_results` Docker volume, availabl
 
 The JSONL records include prompts and model responses; use only the included synthetic corpus or other data you are permitted to store. `docker compose down --volumes` also deletes evaluation history.
 
+## Live observability (optional)
+
+The normal app only needs `make dev`. Observability is optional; it adds Prometheus and Grafana to the same Compose stack. The API exports Prometheus metrics at `http://localhost:8000/metrics`.
+
+Before the first observability startup, set Grafana's local login in `.env` (created from `.env.example` during first-time setup):
+
+```dotenv
+GRAFANA_ADMIN_USER=admin
+GRAFANA_ADMIN_PASSWORD=choose-a-unique-local-password
+```
+
+The `.env.example` sample defaults to `admin` / `local-only-change-me`; replace the sample password before starting Grafana. If its `grafana_data` volume has already been initialized, the stored password remains in effect even if you edit `.env` later.
+
+Start the normal app and monitoring services:
+
+```sh
+make observability-up
+```
+
+Open [Grafana](http://localhost:3001) and sign in with those credentials. The provisioned dashboard is **LLM Guardrail Lab → LLM Guardrail Lab — Live**. Prometheus is at <http://localhost:9090>. Both web UIs bind to localhost.
+
+Verify the API metrics endpoint and that Prometheus is scraping it:
+
+```sh
+curl http://localhost:8000/metrics
+curl 'http://localhost:9090/api/v1/targets'
+```
+
+The `idt-api` target should report `"health":"up"`. To generate safe HTTP activity for the dashboard, call `curl http://localhost:8000/api/evaluations/summary`, then allow about 15–30 seconds for a scrape and refresh. Generation/token panels require a chat request (which may use model-provider quota); guardrail panels require a request with scanners/full mode; evaluation panels require an explicitly started evaluation. Nothing runs automatically.
+
+The dashboard refreshes every 10 seconds and covers API traffic/errors/latency, generation requests/latency/tokens, guardrail outcomes, and active evaluation progress. Metrics use bounded labels and omit prompts, answers, run IDs, and credentials. Counters are process-lifetime; historical experiment results remain in the `evaluation_results` volume. Grafana's admin password is initialized when its data volume is first created; if you need to change it later, sign in and change it in Grafana's profile settings.
+
+Stop only the optional monitoring containers with:
+
+```sh
+make observability-down
+```
+
 ### Supplementary garak scan
 
 NVIDIA garak 0.17.0 is pinned in its own isolated `tools/garak` uv project to avoid conflicting with LLM Guard's Transformers version. Run the selected prompt-injection/encoding probes against the local OpenAI-compatible endpoint:
@@ -258,7 +296,7 @@ uv sync --all-groups
 make check
 ```
 
-`make check` runs Ruff, pytest, a production frontend build, and Compose configuration validation. CI also runs frontend lint and dependency audit.
+`make check` runs Ruff, pytest, a production frontend build, and Compose configuration validation. GitHub Actions additionally runs frontend lint, Python and npm dependency audits, Gitleaks, builds both runtime images, and scans their OS packages with Trivy. CI writes pytest pass/fail counts and failing test names into the workflow run summary and uploads `pytest-report.xml` as the `python-test-report` artifact (retained for 14 days). The Python audit has explicit exceptions for advisories on versions hard-pinned by LLM Guard 0.3.16; review those exceptions when updating LLM Guard.
 
 ## Research question
 

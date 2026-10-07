@@ -8,6 +8,7 @@ dependencies = [
     "fastapi>=0.115,<1",
     "httpx>=0.28,<1",
     "llm-guard[onnxruntime]==0.3.16",
+    "prometheus-client>=0.21,<1",
     "torch>=2.4.0",
     "uvicorn[standard]>=0.34,<1",
 ]
@@ -15,7 +16,8 @@ dependencies = [
 [dependency-groups]
 dev = [
     "anyio>=4.8,<5",
-    "pytest>=8.3,<9",
+    "pip-audit>=2.9,<3",
+    "pytest>=9.0.3,<10",
     "ruff>=0.11,<1",
 ]
 
@@ -44,3 +46,11 @@ explicit = true
 
 [tool.uv.sources]
 torch = { index = "pytorch-cpu" }
+
+[tool.uv]
+# Keep patched JSON/AES libraries despite old bounds in the pinned LLM Guard stack.
+# tests/test_security_dependency_overrides.py exercises the APIs used by those packages.
+override-dependencies = [
+    "cryptography>=50,<51",
+    "json-repair>=0.60.1,<1",
+]

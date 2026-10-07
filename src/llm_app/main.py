@@ -10,6 +10,7 @@ from uuid import uuid4
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from llm_app.backends.base import ChatBackend
 from llm_app.backends.ollama import ModelServiceError, OllamaBackend
@@ -18,6 +19,14 @@ from llm_app.guardrails import (
     GuardrailPipeline,
     GuardrailUnavailable,
     build_verdict,
+)
+from llm_app.metrics import (
+    GENERATION_REQUEST_DURATION_SECONDS,
+    GENERATION_REQUESTS,
+    GENERATION_TOKENS,
+    GUARDRAIL_CHECKS,
+    HTTP_REQUEST_DURATION_SECONDS,
+    HTTP_REQUESTS,
 )
 from llm_app.schemas import (
     ChatRequest,
@@ -44,6 +53,25 @@ app.add_middleware(
     allow_methods=["GET", "POST"],
     allow_headers=["Content-Type", "Authorization", "x-opencode-session"],
 )
+
+
+@app.middleware("http")
+async def collect_http_metrics(request, call_next):
+    started_at = perf_counter()
+    status_code = 500
+    try:
+        response = await call_next(request)
+        status_code = response.status_code
+        return response
+    finally:
+        route = request.scope.get("route")
+        endpoint = getattr(route, "path", "unmatched")
+        if endpoint != "/metrics":
+            method = request.method
+            HTTP_REQUESTS.labels(method, endpoint, str(status_code)).inc()
+            HTTP_REQUEST_DURATION_SECONDS.labels(method, endpoint).observe(
+                perf_counter() - started_at
+            )
 
 
 @lru_cache
@@ -89,6 +117,14 @@ def require_supported_model(request: ChatRequest, backend: ChatBackend) -> None:
         )
 
 
+def guardrail_metric_backend(level: str) -> str:
+    if level == "full":
+        return settings.llama_guard_backend
+    if level == "scanners":
+        return "llm-guard"
+    return "none"
+
+
 async def complete_chat(
     request: ChatRequest,
     backend: ChatBackend,
@@ -113,8 +149,17 @@ async def complete_chat(
             [message.model_dump() for message in request.messages], guardrail_level
         )
     except GuardrailUnavailable as exc:
+        GUARDRAIL_CHECKS.labels(
+            guardrail_level, "input", guardrail_metric_backend(guardrail_level), "error"
+        ).inc()
         logger.warning("Input guardrail unavailable: %s", exc)
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+    GUARDRAIL_CHECKS.labels(
+        guardrail_level,
+        "input",
+        guardrail_metric_backend(guardrail_level),
+        input_result.outcome,
+    ).inc()
 
     if input_result.outcome == "blocked":
         verdict = build_verdict(guardrail_level, input_result)
@@ -128,6 +173,8 @@ async def complete_chat(
         return response, f"chatcmpl-{uuid4().hex}"
 
     latest_prompt = input_result.messages[-1]["content"]
+    generation_started_at = perf_counter()
+    generation_outcome = "error"
     try:
         result = await backend.chat(
             input_result.messages,
@@ -137,9 +184,24 @@ async def complete_chat(
             model=selected_model,
             session_id=session_id,
         )
+        generation_outcome = "success"
     except ModelServiceError as exc:
         logger.warning("LLM backend request failed: %s", exc)
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+    finally:
+        GENERATION_REQUESTS.labels(
+            backend.provider, selected_model, generation_outcome
+        ).inc()
+        GENERATION_REQUEST_DURATION_SECONDS.labels(
+            backend.provider, selected_model
+        ).observe(perf_counter() - generation_started_at)
+
+    GENERATION_TOKENS.labels(backend.provider, selected_model, "prompt").inc(
+        int(result["prompt_tokens"])
+    )
+    GENERATION_TOKENS.labels(backend.provider, selected_model, "completion").inc(
+        int(result["completion_tokens"])
+    )
 
     answer = result["content"]
     output_result = None
@@ -147,8 +209,17 @@ async def complete_chat(
         try:
             output_result = await guardrails.inspect_output(latest_prompt, answer, guardrail_level)
         except GuardrailUnavailable as exc:
+            GUARDRAIL_CHECKS.labels(
+                guardrail_level, "output", guardrail_metric_backend(guardrail_level), "error"
+            ).inc()
             logger.warning("Output guardrail unavailable; withholding the model response: %s", exc)
             raise HTTPException(status_code=503, detail=str(exc)) from exc
+        GUARDRAIL_CHECKS.labels(
+            guardrail_level,
+            "output",
+            guardrail_metric_backend(guardrail_level),
+            output_result.outcome,
+        ).inc()
         if output_result.outcome == "blocked":
             answer = "This response was withheld by the output safety check."
 
@@ -182,6 +253,14 @@ async def health(backend: BackendDependency, guardrails: GuardrailDependency) ->
         guardrail_level=settings.guardrail_level,
         guardrail_classifier_backend=settings.llama_guard_backend,
         guardrail_classifier_configured=classifier_configured,
+    )
+
+
+@app.get("/metrics", include_in_schema=False)
+async def metrics() -> Response:
+    return Response(
+        content=generate_latest(),
+        headers={"Content-Type": CONTENT_TYPE_LATEST},
     )
 
 

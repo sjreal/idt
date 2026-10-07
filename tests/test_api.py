@@ -96,6 +96,37 @@ def test_health_reports_backend_status() -> None:
     app.dependency_overrides.clear()
 
 
+def test_metrics_endpoint_exposes_prometheus_metrics() -> None:
+    with get_test_client() as client:
+        response = client.get("/metrics")
+
+    assert response.status_code == 200
+    assert "text/plain" in response.headers["content-type"]
+    assert "llm_lab_http_requests_total" in response.text
+    assert "llm_lab_generation_request_duration_seconds" in response.text
+    assert "llm_lab_evaluation_run_active" in response.text
+    app.dependency_overrides.clear()
+
+
+def test_chat_records_generation_metrics() -> None:
+    with get_test_client() as client:
+        chat_response = client.post(
+            "/api/chat", json={"messages": [{"role": "user", "content": "Hi"}]}
+        )
+        metrics_response = client.get("/metrics")
+
+    assert chat_response.status_code == 200
+    assert (
+        'llm_lab_generation_requests_total{backend="ollama",model="test-model",outcome="success"}'
+        in metrics_response.text
+    )
+    assert (
+        'llm_lab_generation_tokens_total{backend="ollama",model="test-model",token_type="prompt"}'
+        in metrics_response.text
+    )
+    app.dependency_overrides.clear()
+
+
 def test_evaluation_summary_exposes_fixed_dataset_manifest() -> None:
     with get_test_client() as client:
         response = client.get("/api/evaluations/summary")

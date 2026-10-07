@@ -22,7 +22,44 @@ jobs:
       - run: uv sync --locked --all-groups
       - run: uv lock --project tools/garak --check --python 3.12
       - run: uv run ruff check .
-      - run: uv run pytest -q
+      - name: Run Python tests
+        run: uv run pytest -q --junitxml=pytest-report.xml
+      - name: Summarize Python tests
+        if: always()
+        run: python scripts/summarize_junit.py pytest-report.xml
+      - name: Upload Python test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-test-report
+          path: pytest-report.xml
+          if-no-files-found: warn
+          retention-days: 14
+      # LLM Guard 0.3.16 pins Transformers 4.51.3; these are allowlisted until
+      # LLM Guard releases compatible dependency updates. NLTK has no fix version yet.
+      - name: Audit Python dependencies
+        run: |
+          uv run pip-audit --local --skip-editable \
+            --ignore-vuln PYSEC-2025-211 \
+            --ignore-vuln PYSEC-2025-212 \
+            --ignore-vuln PYSEC-2025-213 \
+            --ignore-vuln PYSEC-2025-214 \
+            --ignore-vuln PYSEC-2025-215 \
+            --ignore-vuln PYSEC-2025-216 \
+            --ignore-vuln PYSEC-2025-217 \
+            --ignore-vuln PYSEC-2025-218 \
+            --ignore-vuln PYSEC-2026-1977 \
+            --ignore-vuln PYSEC-2026-1980 \
+            --ignore-vuln PYSEC-2026-1981 \
+            --ignore-vuln PYSEC-2026-1983 \
+            --ignore-vuln PYSEC-2026-1986 \
+            --ignore-vuln PYSEC-2026-1988 \
+            --ignore-vuln PYSEC-2026-2288 \
+            --ignore-vuln PYSEC-2026-2289 \
+            --ignore-vuln PYSEC-2026-2290 \
+            --ignore-vuln PYSEC-2026-3929 \
+            --ignore-vuln PYSEC-2026-4174 \
+            --ignore-vuln PYSEC-2026-3740
 
   frontend:
     name: Frontend build
@@ -52,3 +89,36 @@ jobs:
       - uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  container-build-scan:
+    name: Container build and vulnerability scan
+    runs-on: ubuntu-latest
+    needs: [backend, frontend]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build API image
+        run: docker build --pull --file Dockerfile --tag idt-llm-cicd-api:ci .
+      - name: Build frontend image
+        run: docker build --pull --file frontend/Dockerfile --tag idt-llm-cicd-frontend:ci frontend
+      - name: Scan API image
+        uses: aquasecurity/trivy-action@v0.28.0
+        with:
+          version: v0.58.2
+          scan-type: image
+          image-ref: idt-llm-cicd-api:ci
+          scanners: vuln
+          vuln-type: os
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "1"
+      - name: Scan frontend image
+        uses: aquasecurity/trivy-action@v0.28.0
+        with:
+          version: v0.58.2
+          scan-type: image
+          image-ref: idt-llm-cicd-frontend:ci
+          scanners: vuln
+          vuln-type: os
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "1"

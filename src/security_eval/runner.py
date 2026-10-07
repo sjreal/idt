@@ -16,6 +16,11 @@ from uuid import uuid4
 
 from fastapi import HTTPException
 
+from llm_app.metrics import (
+    ACTIVE_EVALUATION_RUNS,
+    EVALUATION_CASES,
+    EVALUATION_RUNS,
+)
 from llm_app.schemas import ChatRequest, ChatResponse, GuardrailLevel
 from security_eval.analysis import summarize_results
 from security_eval.dataset import EvaluationCase, load_dataset
@@ -116,6 +121,20 @@ class EvaluationRunManager:
             return metadata
 
     async def _execute(
+        self,
+        run_id: str,
+        metadata: dict[str, Any],
+        config: dict[str, Any],
+        cases: list[EvaluationCase],
+        call_chat: RunChat,
+    ) -> None:
+        ACTIVE_EVALUATION_RUNS.set(1)
+        try:
+            await self._execute_run(run_id, metadata, config, cases, call_chat)
+        finally:
+            ACTIVE_EVALUATION_RUNS.set(0)
+
+    async def _execute_run(
         self,
         run_id: str,
         metadata: dict[str, Any],
@@ -232,6 +251,11 @@ class EvaluationRunManager:
 
                 self.store.append_result(run_id, result)
                 results.append(result)
+                EVALUATION_CASES.labels(
+                    arm,
+                    case.kind,
+                    "error" if result["error"] else "completed",
+                ).inc()
                 metadata["results_written"] = len(results)
                 self.store.write_metadata(run_id, metadata)
                 if abort_error:
@@ -258,3 +282,4 @@ class EvaluationRunManager:
         metadata["error"] = abort_error
         metadata["completed_at"] = datetime.now(UTC).isoformat()
         self.store.write_metadata(run_id, metadata)
+        EVALUATION_RUNS.labels(metadata["status"]).inc()
