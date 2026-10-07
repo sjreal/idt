@@ -101,24 +101,19 @@ jobs:
       - name: Build frontend image
         run: docker build --pull --file frontend/Dockerfile --tag idt-llm-cicd-frontend:ci frontend
       - name: Scan API image
-        uses: aquasecurity/trivy-action@v0.31.0
-        with:
-          version: v0.58.2
-          scan-type: image
-          image-ref: idt-llm-cicd-api:ci
-          scanners: vuln
-          vuln-type: os
-          severity: CRITICAL,HIGH
-          ignore-unfixed: true
-          exit-code: "1"
+        run: |
+          mkdir -p "$RUNNER_TEMP/trivy-cache"
+          docker run --rm \
+            --volume /var/run/docker.sock:/var/run/docker.sock \
+            --volume "$RUNNER_TEMP/trivy-cache:/root/.cache" \
+            aquasec/trivy:0.58.2 \
+            image --scanners vuln --pkg-types os --severity CRITICAL,HIGH \
+            --ignore-unfixed --exit-code 1 idt-llm-cicd-api:ci
       - name: Scan frontend image
-        uses: aquasecurity/trivy-action@v0.31.0
-        with:
-          version: v0.58.2
-          scan-type: image
-          image-ref: idt-llm-cicd-frontend:ci
-          scanners: vuln
-          vuln-type: os
-          severity: CRITICAL,HIGH
-          ignore-unfixed: true
-          exit-code: "1"
+        run: |
+          docker run --rm \
+            --volume /var/run/docker.sock:/var/run/docker.sock \
+            --volume "$RUNNER_TEMP/trivy-cache:/root/.cache" \
+            aquasec/trivy:0.58.2 \
+            image --scanners vuln --pkg-types os --severity CRITICAL,HIGH \
+            --ignore-unfixed --exit-code 1 idt-llm-cicd-frontend:ci
