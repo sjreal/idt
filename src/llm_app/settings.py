@@ -17,7 +17,7 @@ def get_settings() -> "Settings":
             "OPENCODE_GO_BASE_URL", "https://opencode.ai/zen/go/v1"
         ).rstrip("/"),
         opencode_go_model=os.getenv(
-            "OPENCODE_GO_MODEL", "longcat-2.5-preview-free"
+            "OPENCODE_GO_MODEL", "deepseek-v4.1-flash"
         ),
         opencode_go_api_key=os.getenv("OPENCODE_GO_API_KEY", ""),
         guardrail_level=guardrail_level,

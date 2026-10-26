@@ -58,14 +58,14 @@ The first pull can take a while and needs disk space. To choose another Ollama m
 
 ### Option B: OpenCode Go (remote inference)
 
-OpenCode Go requires a Go subscription and an API key from the OpenCode Console. The default model below is listed as free for a limited time; Go usage/model limits still apply. A low-cost non-preview Chat Completions option is `glm-5.3-flash`. Parameter counts are not published, so the smallest model cannot be verified. See the [OpenCode Go guide](https://opencode.ai/v2/console/go) for current models, compatibility, limits, and usage guidance.
+OpenCode Go requires a Go subscription and an API key from the OpenCode Console. The default model is `deepseek-v4.1-flash`; `beam-free` and other Chat Completions-compatible models are selectable when the provider advertises them for your workspace and region. Go usage/model limits still apply. Parameter counts are not published, so the smallest model cannot be verified. See the [OpenCode Go guide](https://opencode.ai/v2/docs/console/go/) for current models, compatibility, limits, privacy, and usage guidance.
 
 In `.env`, use your own key (do not paste it into source files or commit it):
 
 ```dotenv
 LLM_BACKEND=opencode-go
 COMPOSE_PROFILES=
-OPENCODE_GO_MODEL=longcat-2.5-preview-free
+OPENCODE_GO_MODEL=deepseek-v4.1-flash
 OPENCODE_GO_API_KEY=your-key-from-the-opencode-console
 ```
 

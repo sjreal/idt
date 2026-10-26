@@ -564,8 +564,11 @@ def test_opencode_go_lists_only_chat_completions_models() -> None:
             200,
             json={
                 "data": [
+                    {"id": "beam-free"},
+                    {"id": "deepseek-v4.1-flash"},
                     {"id": "longcat-2.5-preview-free"},
                     {"id": "gpt-6-luna"},
+                    {"id": "qwen3.8-max"},
                     {"id": "glm-5.3-flash"},
                 ]
             },
@@ -573,14 +576,15 @@ def test_opencode_go_lists_only_chat_completions_models() -> None:
 
     backend = OpenCodeGoBackend(
         "https://opencode.ai/zen/go/v1",
-        "longcat-2.5-preview-free",
+        "deepseek-v4.1-flash",
         "test-secret",
         transport=httpx.MockTransport(handler),
     )
 
     assert asyncio.run(backend.list_models()) == [
+        "beam-free",
+        "deepseek-v4.1-flash",
         "glm-5.3-flash",
-        "longcat-2.5-preview-free",
     ]
 
 

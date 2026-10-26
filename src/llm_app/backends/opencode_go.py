@@ -26,24 +26,30 @@ class OpenCodeGoBackend:
     provider = "opencode-go"
 
     # These Go catalog models use the Chat Completions endpoint. Models served
-    # through Responses or Anthropic Messages need a different adapter.
+    # through Responses, Anthropic Messages, or Google endpoints need a different
+    # adapter. Keep this list in sync with the Chat Completions rows in the Go
+    # model catalog.
     chat_completion_models = frozenset(
         {
-            "glm-5.3-flash",
-            "glm-5.3",
-            "glm-5.2",
-            "kimi-k3",
-            "kimi-k2.7-code",
-            "kimi-k2.6",
-            "longcat-2.0",
-            "longcat-2.5-preview-free",
+            "beam-free",
             "deepseek-v4.1-flash",
             "deepseek-v4-pro",
-            "deepseek-v4-flash",
-            "deepseek-v4-flash-vision-exp",
-            "hy4-preview",
+            "glm-5.2",
+            "glm-5.3",
+            "glm-5.3-flash",
             "hy3",
-            "space-bunny",
+            "hy4-preview",
+            "kimi-k2.6",
+            "kimi-k2.7-code",
+            "kimi-k3",
+            "kimi-k3.1-pro",
+            "longcat-2.0",
+            "mimo-v2.5",
+            "mimo-v2.5-pro",
+            "mimo-v2.6-flash",
+            "mimo-v2.6-pro",
+            "minimax-m3.1-flash",
+            "step-5-preview",
         }
     )
 
