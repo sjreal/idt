@@ -37,7 +37,7 @@ recording rule. Availability uses the `status_code` label emitted by
 | --- | --- | --- | --- | --- | --- |
 | `ChatAvailabilityFastBurn` | 14.4x | 1h | 5m | `page` | 2m |
 | `ChatAvailabilitySlowBurn` | 6x | 6h | 30m | `ticket` | 15m |
-| `GuardrailUnavailable` | >50% failed checks, or no guardrail checks scraped | 5m rate / 10m absence | - | `page` | 10m |
+| `GuardrailUnavailable` | >50% failed checks | 5m rate | - | `page` | 10m |
 | `EvaluationRunAborted` | any `aborted_budget` / `failed` run | 10m | - | `ticket` | immediate |
 | `CircuitOpenExtended` | any circuit open | 2m | - | `page` | 2m |
 | `FallbackRateHigh` | >10% of generation requests fall back | 5m rate + 15m pending | - | `ticket` | 15m |

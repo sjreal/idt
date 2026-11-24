@@ -18,9 +18,13 @@ make observability-up # adds Prometheus, Grafana, CI exporter, Phoenix
 make observability-down # stops Grafana, Prometheus, CI exporter, Phoenix
 ```
 
-`make observability-up` and `make observability-down` use both `docker-compose.yml` and `docker-compose.observability.yml`. The override points the app at the Phoenix OTLP/HTTP collector (`http://phoenix:6006/v1/traces`), so enabling the profile wires the trace plane end to end. The base file alone leaves `OTEL_EXPORTER_OTLP_ENDPOINT` empty, so a plain `docker compose up` produces zero exporter traffic and does not require the trace plane.
+`make observability-up` and `make observability-down` use both `docker-compose.yml` and `docker-compose.observability.yml`. The override points the app at the Phoenix OTLP/HTTP collector base URL (`http://phoenix:6006`), so enabling the profile wires the trace plane end to end. The base file alone leaves `OTEL_EXPORTER_OTLP_ENDPOINT` empty, so a plain `docker compose up` produces zero exporter traffic and does not require the trace plane.
 
-Phoenix is a service under the `observability` profile; the app does not require it. To export spans without the override, set `OTEL_EXPORTER_OTLP_ENDPOINT` yourself (for example `http://localhost:6006/v1/traces`) and recreate the API.
+`OTEL_EXPORTER_OTLP_ENDPOINT` is a **base URL**: exporters append the signal path, so spans go to `/v1/traces` and metrics to `/v1/metrics`. A full `/v1/traces` URL also works — the app resolves both forms to the same target.
+
+Phoenix enables authentication for non-loopback hosts, so the compose file sets `PHOENIX_ENABLE_AUTH=false` by default. That matches the localhost-only scope of the lab: the collector is reachable only from the compose network and is published on `127.0.0.1`. To require a token, set `PHOENIX_ENABLE_AUTH=true` and `PHOENIX_API_KEY`, and point the app at it with `OTEL_EXPORTER_OTLP_HEADERS=authorization=Bearer <key>`.
+
+Phoenix is a service under the `observability` profile; the app does not require it. To export spans without the override, set `OTEL_EXPORTER_OTLP_ENDPOINT` yourself (for example `http://localhost:6006`) and recreate the API.
 
 ## Local surfaces
 
@@ -30,7 +34,7 @@ Phoenix is a service under the `observability` profile; the app does not require
 | Prometheus | <http://localhost:9090> | Alerts at `/alerts`; 15d retention |
 | Grafana | <http://localhost:3001> | `admin` / `local-only-change-me` from `.env.example` |
 | CI exporter | <http://localhost:9101/metrics> | Read-only GitHub Actions history for the configured repo/branch |
-| Phoenix | <http://localhost:6006> | UI and OTLP/HTTP collector share port 6006 |
+| Phoenix | <http://localhost:6006> | UI and OTLP/HTTP collector share port 6006; auth off by default |
 | Observability config | <http://localhost:8000/api/observability/config> | Reports tracing/content-capture state and UI links |
 | Local trace buffer | `GET /api/traces`, `GET /api/traces/{trace_id}` | Per-day JSONL with retention and byte cap |
 
@@ -90,6 +94,8 @@ Storage failures are counted and logged but never fail generation.
 See [SLOs and burn alerts](slo.md). Targets are **provisional** until a 7-day baseline is collected and reviewed; they are engineering targets for a localhost demo, not customer SLAs.
 
 Prometheus rules in `observability/alerts.yml` cover target down, sustained 5xx, repeated provider failures, chat availability fast/slow burn, guardrail unavailability, evaluation aborts, extended circuit opens, and high fallback rate. Notifications require an Alertmanager/contact point; none is configured by default.
+
+The guardrail alert keys off the failure ratio only. An absent `llm_lab_guardrail_checks_total` is not a failure: the `off` arm runs no stage, so no series exist while the baseline arm is the only one in use. A broken scrape is covered by `LlmApiTargetDown`.
 
 ## Validation without services
 
