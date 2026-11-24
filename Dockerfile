@@ -1,6 +1,8 @@
 FROM ghcr.io/astral-sh/uv:0.12.19 AS uv
 
-FROM python:3.12-slim
+# Pinned by digest: a floating tag would silently change the base OS and
+# reintroduce vulnerabilities that the CI image scan catches.
+FROM python:3.12-slim@sha256:37fc60d303cb9294d3718b5b48998a0210bb1c73611c1399ef5eb7964c0536e5
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
