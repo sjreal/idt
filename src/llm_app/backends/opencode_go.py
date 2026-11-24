@@ -118,10 +118,13 @@ class OpenCodeGoBackend:
                     timeout=self.timeout_seconds,
                     transport=self.transport,
                 ) as client:
-                    response = await client.post(
-                        "chat/completions",
-                        json=payload,
-                        headers=self._headers(session_id),
+                    response = await asyncio.wait_for(
+                        client.post(
+                            "chat/completions",
+                            json=payload,
+                            headers=self._headers(session_id),
+                        ),
+                        timeout=self.timeout_seconds,
                     )
 
                 status = response.status_code
@@ -153,7 +156,16 @@ class OpenCodeGoBackend:
                     raise ModelServiceError(
                         f"{exc} (after {attempt + 1} attempts)."
                     ) from exc
-            except httpx.RequestError as exc:
+            except (httpx.RequestError, TimeoutError) as exc:
+                if isinstance(exc, TimeoutError):
+                    if await self._wait_before_retry(
+                        attempt, selected_model, request_error=True
+                    ):
+                        continue
+                    raise ModelServiceError(
+                        f"OpenCode Go did not respond within {self.timeout_seconds} seconds "
+                        f"(after {attempt + 1} attempts)."
+                    ) from exc
                 if await self._wait_before_retry(
                     attempt, selected_model, request_error=True
                 ):

@@ -161,6 +161,7 @@ class EvaluationRunManager:
         call_chat: RunChat,
         replicates: int = 1,
         max_requests: int | None = None,
+        skip_keys: set[tuple[str, str, int]] | None = None,
     ) -> dict[str, Any]:
         state = self._state()
         async with state.lock:
@@ -194,7 +195,11 @@ class EvaluationRunManager:
                 cases = cases[:sample_limit]
 
             effective_cap, hard_ceiling = resolve_request_budget(config, max_requests)
-            planned = len(cases) * len(arms) * max(1, replicates)
+            total_combos = len(cases) * len(arms) * max(1, replicates)
+            skipped = len(skip_keys) if skip_keys else 0
+            planned = total_combos - skipped
+            if planned < 0:
+                planned = 0
             if planned > effective_cap:
                 raise EvaluationBudgetExceeded(
                     f"Planned {planned} generation requests exceeds the effective cap of "
@@ -251,7 +256,7 @@ class EvaluationRunManager:
             }
             self.store.create_run(run_id, metadata)
             state.task = asyncio.create_task(
-                self._execute(run_id, metadata, config, cases, call_chat)
+                self._execute(run_id, metadata, config, cases, call_chat, skip_keys=skip_keys)
             )
             self._task = state.task
             # The background task mutates ``metadata`` in place, so return a
@@ -265,10 +270,11 @@ class EvaluationRunManager:
         config: dict[str, Any],
         cases: list[EvaluationCase],
         call_chat: RunChat,
+        skip_keys: set[tuple[str, str, int]] | None = None,
     ) -> None:
         ACTIVE_EVALUATION_RUNS.set(1)
         try:
-            await self._execute_run(run_id, metadata, config, cases, call_chat)
+            await self._execute_run(run_id, metadata, config, cases, call_chat, skip_keys=skip_keys)
         finally:
             ACTIVE_EVALUATION_RUNS.set(0)
 
@@ -279,6 +285,7 @@ class EvaluationRunManager:
         config: dict[str, Any],
         cases: list[EvaluationCase],
         call_chat: RunChat,
+        skip_keys: set[tuple[str, str, int]] | None = None,
     ) -> None:
         metadata["status"] = "running"
         metadata["started_at"] = datetime.now(UTC).isoformat()
@@ -291,6 +298,8 @@ class EvaluationRunManager:
         for replicate in range(int(metadata["replicates"])):
             for arm in metadata["arms"]:
                 for case in cases:
+                    if skip_keys and (case.id, arm, replicate) in skip_keys:
+                        continue
                     if metadata["requests_used"] >= cap:
                         budget_exhausted = True
                         abort_error = f"budget_exhausted_after_{metadata['requests_used']}"
@@ -394,7 +403,7 @@ class EvaluationRunManager:
                             "cost": None,
                             "error": f"HTTP {exc.status_code}: {exc.detail}",
                         }
-                        if exc.status_code in {401, 403, 429, 502, 503, 504}:
+                        if exc.status_code in {401, 403, 429}:
                             abort_error = result["error"]
                     except Exception as exc:  # Keep the run record if a provider fails.
                         logger.exception("Evaluation request failed for run %s", run_id)

@@ -197,13 +197,14 @@ def replicate_rate_sd(
 
 
 def _cost_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
-    priced = [
-        row["cost"]
+    priced_rows = [
+        row
         for row in rows
         if isinstance(row.get("cost"), dict) and row["cost"].get("priced")
     ]
-    notional = sum(float(row["cost"].get("notional_usd") or 0.0) for row in priced)
-    marginal = sum(float(row["cost"].get("marginal_usd") or 0.0) for row in priced)
+    priced_costs = [row["cost"] for row in priced_rows]
+    notional = sum(float(cost.get("notional_usd") or 0.0) for cost in priced_costs)
+    marginal = sum(float(cost.get("marginal_usd") or 0.0) for cost in priced_costs)
     attacks = [
         row
         for row in rows
@@ -211,7 +212,9 @@ def _cost_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
         and isinstance(row.get("cost"), dict)
         and row["cost"].get("priced")
     ]
-    attack_notional = sum(float(row["cost"].get("notional_usd") or 0.0) for row in attacks)
+    attack_notional = sum(
+        float(row["cost"].get("notional_usd") or 0.0) for row in attacks
+    )
     blocked = sum(
         1
         for row in rows
@@ -220,10 +223,10 @@ def _cost_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
         and not row.get("error")
     )
     return {
-        "priced_requests": len(priced),
-        "unpriced_requests": len(rows) - len(priced),
-        "notional_usd": round(notional, 8) if priced else None,
-        "marginal_usd": round(marginal, 8) if priced else None,
+        "priced_requests": len(priced_rows),
+        "unpriced_requests": len(rows) - len(priced_rows),
+        "notional_usd": round(notional, 8) if priced_rows else None,
+        "marginal_usd": round(marginal, 8) if priced_rows else None,
         "attack_notional_usd": round(attack_notional, 8) if attacks else None,
         "blocked_attacks": blocked,
         "cost_per_blocked_attack_usd": (

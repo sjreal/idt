@@ -158,6 +158,7 @@ class EvaluationStartRequest(BaseModel):
     generation_model: str | None = None
     replicates: int = Field(default=1, ge=1, le=10)
     max_requests: int | None = Field(default=None, ge=1)
+    resume_run_id: str | None = None
 
     @model_validator(mode="after")
     def require_unique_arms(self) -> "EvaluationStartRequest":

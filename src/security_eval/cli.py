@@ -29,7 +29,13 @@ def parse_args() -> argparse.Namespace:
             f"EVALUATION_HARD_MAX_REQUESTS ({HARD_MAX_REQUESTS})."
         ),
     )
+    parser.add_argument(
+        "--resume",
+        default=None,
+        help="Resume a previous run by id: skip case/arm combos already completed.",
+    )
     parser.add_argument("--poll-seconds", type=float, default=2)
+
     args = parser.parse_args()
 
     if args.max_requests is not None and args.max_requests > HARD_MAX_REQUESTS:
@@ -52,6 +58,25 @@ def main() -> int:
         payload["sample_limit"] = args.sample_limit
     if args.max_requests is not None:
         payload["max_requests"] = args.max_requests
+    if args.resume:
+        payload["resume_run_id"] = args.resume
+        # Pull the original run's params so the continuation matches it.
+        try:
+            with httpx.Client(timeout=30) as client:
+                original = client.get(f"{base_url}/api/evaluations/runs/{args.resume}")
+                original.raise_for_status()
+                run = original.json()
+        except httpx.HTTPError as exc:
+            print(f"Could not load resume run: {exc}", file=sys.stderr)
+            return 1
+        payload.setdefault("arms", run.get("arms"))
+        payload["arms"] = run.get("arms", payload["arms"])
+        payload["seed"] = run.get("seed", payload["seed"])
+        payload["replicates"] = run.get("replicates", payload["replicates"])
+        if run.get("generation_model"):
+            payload["generation_model"] = run["generation_model"]
+        completed = sum(1 for r in run.get("results", []) if not r.get("error"))
+        print(f"Resuming {args.resume}: {completed} already completed.")
 
     try:
         with httpx.Client(timeout=30) as client:
@@ -59,7 +84,13 @@ def main() -> int:
             summary.raise_for_status()
             cases = int(summary.json()["total"])
             planned = cases if args.sample_limit is None else min(cases, args.sample_limit)
-            planned *= len(args.arms) * args.replicates
+            if args.resume:
+                # Server computes the remaining count; estimate locally.
+                original_run = client.get(f"{base_url}/api/evaluations/runs/{args.resume}").json()
+                done = sum(1 for r in original_run.get("results", []) if not r.get("error"))
+                planned = max(0, planned * len(args.arms) * args.replicates - done)
+            else:
+                planned *= len(args.arms) * args.replicates
             print(f"Planned generation requests: {planned}")
             print(f"Budget override: {args.max_requests or 'server default'}")
 

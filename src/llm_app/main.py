@@ -903,6 +903,17 @@ async def start_evaluation(
             status_code=400,
             detail="Configure the guardrail classifier before running classifier arms.",
         )
+
+    skip_keys: set[tuple[str, str, int]] | None = None
+    if request.resume_run_id:
+        resumed = manager.store.get_run(request.resume_run_id)
+        if resumed is None:
+            raise HTTPException(status_code=404, detail="Resume run not found.")
+        skip_keys = {
+            (str(row.get("case_id")), str(row.get("arm")), int(row.get("replicate", 0)))
+            for row in resumed.get("results", [])
+            if not row.get("error") and row.get("case_id") and row.get("arm")
+        }
     async def call_chat(chat_request: ChatRequest, session_id: str) -> ChatResponse:
         # Evaluation pins the model: fallback is disabled for the whole run.
         response, _ = await complete_chat(
@@ -926,6 +937,7 @@ async def start_evaluation(
             call_chat=call_chat,
             replicates=request.replicates,
             max_requests=request.max_requests,
+            skip_keys=skip_keys,
         )
     except EvaluationAlreadyRunning as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
