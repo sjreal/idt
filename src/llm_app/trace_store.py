@@ -38,7 +38,13 @@ class TraceStore:
         self.max_bytes = max_bytes
         self._dropped = 0
         self._lock = threading.RLock()
-        self.root.mkdir(parents=True, exist_ok=True)
+        # The directory is created lazily. The local trace buffer is a
+        # convenience layer, so an unwritable path must not stop the API from
+        # starting; append() creates it and reports failures without raising.
+        try:
+            self.root.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            logger.warning("Could not create the trace directory %s: %s", self.root, exc)
 
     @property
     def dropped_total(self) -> int:
@@ -79,7 +85,12 @@ class TraceStore:
         line = json.dumps(record, default=str) + "\n"
         line_size = len(line.encode("utf-8"))
         with self._lock:
-            self.root.mkdir(parents=True, exist_ok=True)
+            try:
+                self.root.mkdir(parents=True, exist_ok=True)
+            except OSError as exc:
+                self._dropped += 1
+                logger.warning("Could not create the trace directory %s: %s", self.root, exc)
+                raise OSError(f"Could not create the trace directory {self.root}") from exc
             self.prune()
             files = self._day_files()
             total = sum(path.stat().st_size for path in files)

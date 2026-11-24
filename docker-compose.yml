@@ -120,6 +120,12 @@ services:
     environment:
       PHOENIX_PORT: "6006"
       PHOENIX_WORKING_DIR: /phoenix-data
+      # Phoenix enables authentication for non-loopback hosts. This collector is
+      # only reachable from the compose network and is published on 127.0.0.1,
+      # so auth is off by default for the local lab. Set PHOENIX_ENABLE_AUTH=true
+      # and PHOENIX_API_KEY to require a bearer token.
+      PHOENIX_ENABLE_AUTH: ${PHOENIX_ENABLE_AUTH:-false}
+      PHOENIX_API_KEY: ${PHOENIX_API_KEY:-}
     ports:
       - "127.0.0.1:6006:6006"
     volumes:

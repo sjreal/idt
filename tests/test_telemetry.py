@@ -207,3 +207,59 @@ def test_span_trace_id_matches_the_exported_trace_and_children_nest() -> None:
 
 def test_span_trace_id_is_none_for_the_noop_span() -> None:
     assert telemetry.span_trace_id(telemetry.NoOpSpan()) is None
+
+
+@pytest.mark.parametrize(
+    ("configured", "expected"),
+    [
+        ("http://phoenix:6006", "http://phoenix:6006/v1/traces"),
+        ("http://phoenix:6006/", "http://phoenix:6006/v1/traces"),
+        ("http://phoenix:6006/v1/traces", "http://phoenix:6006/v1/traces"),
+        ("http://phoenix:6006/v1/traces/", "http://phoenix:6006/v1/traces"),
+        ("  http://collector:4318/v1/traces  ", "http://collector:4318/v1/traces"),
+    ],
+)
+def test_traces_endpoint_resolution_accepts_base_and_full_urls(
+    configured: str, expected: str
+) -> None:
+    """A base URL and a full traces URL must resolve to the same target."""
+    assert telemetry._resolve_traces_endpoint(configured) == expected
+
+
+def test_configure_uses_the_resolved_traces_url(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The exporter must post to /v1/traces, not a doubled path."""
+    captured: dict[str, str] = {}
+
+    class FakeExporter:
+        def __init__(self, endpoint: str) -> None:
+            captured["endpoint"] = endpoint
+
+    class FakeProcessor:
+        def __init__(self, exporter: object) -> None:
+            self.exporter = exporter
+
+    class FakeProvider:
+        def __init__(self, resource: object = None) -> None:
+            pass
+
+        def add_span_processor(self, processor: object) -> None:
+            pass
+
+        def get_tracer(self, name: str) -> object:
+            return object()
+
+        def shutdown(self) -> None:
+            pass
+
+    class FakeResource:
+        @staticmethod
+        def create(attributes: dict[str, str]) -> object:
+            return object()
+
+    fake_otel = (object(), FakeExporter, FakeResource, FakeProvider, FakeProcessor)
+    monkeypatch.setattr(telemetry, "_load_otel", lambda: fake_otel)
+
+    telemetry.configure("svc", "http://phoenix:6006")
+
+    assert captured["endpoint"] == "http://phoenix:6006/v1/traces"
+    telemetry.reset()

@@ -138,3 +138,26 @@ def test_append_requires_trace_id(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="trace_id"):
         store.append({"arm": "baseline"})
+
+
+def test_unwritable_trace_directory_does_not_raise_on_construction(
+    tmp_path: Path,
+) -> None:
+    """The trace buffer is a convenience layer; it must not stop the app."""
+    blocker = tmp_path / "blocked"
+    blocker.write_text("not a directory", encoding="utf-8")
+
+    store = TraceStore(blocker / "traces")
+
+    assert store.root == blocker / "traces"
+
+
+def test_append_reports_an_unwritable_trace_directory(tmp_path: Path) -> None:
+    blocker = tmp_path / "blocked"
+    blocker.write_text("not a directory", encoding="utf-8")
+    store = TraceStore(blocker / "traces")
+
+    with pytest.raises(OSError):
+        store.append({"trace_id": "abc123"})
+
+    assert store.dropped_total == 1

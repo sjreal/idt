@@ -29,6 +29,9 @@ ATTR_USAGE_OUTPUT = "gen_ai.usage.output_tokens"
 ATTR_ATTEMPTS = "llm.attempts"
 ATTR_TRACE_ID = "llm.trace_id"
 
+# The OTLP/HTTP signal path appended to a collector base URL.
+_TRACES_PATH = "/v1/traces"
+
 _SENSITIVE_KEY_PARTS = ("prompt", "answer", "content", "output", "input")
 _METRIC_KEY_PARTS = ("token", "latency", "duration", "count", "size")
 
@@ -135,12 +138,26 @@ def _shutdown_provider() -> None:
             logger.debug("OpenTelemetry provider shutdown failed: %s", exc)
 
 
+def _resolve_traces_endpoint(endpoint: str) -> str:
+    """Return the full OTLP/HTTP traces URL for ``endpoint``.
+
+    The OTLP environment convention treats ``OTEL_EXPORTER_OTLP_ENDPOINT`` as a
+    base URL and appends the signal path, while an explicit traces endpoint is
+    used verbatim. Accept both so the value configured for this app produces
+    the same URL as the exporters that resolve it from the environment.
+    """
+    trimmed = endpoint.strip().rstrip("/")
+    if trimmed.endswith(_TRACES_PATH):
+        return trimmed
+    return f"{trimmed}{_TRACES_PATH}"
+
+
 def configure(service_name: str, endpoint: str | None, capture_content: bool = False) -> None:
     """Configure OTLP/HTTP tracing, or disable it when export is unavailable.
 
-    The endpoint may be the collector base URL or a full ``/v1/traces`` URL;
-    it is passed through to the OTLP exporter unchanged. This function never
-    raises on exporter/setup failures so it is safe to call during startup.
+    The endpoint may be the collector base URL or a full ``/v1/traces`` URL; it
+    is resolved to the traces URL the exporter should post to. This function
+    never raises on exporter/setup failures so it is safe to call during startup.
     """
     global _capture_content, _enabled, _endpoint, _provider, _service_name, _trace_api
     _shutdown_provider()
@@ -163,7 +180,7 @@ def configure(service_name: str, endpoint: str | None, capture_content: bool = F
         processor_cls,
     ) = otel
     try:
-        exporter = exporter_cls(endpoint=_endpoint)
+        exporter = exporter_cls(endpoint=_resolve_traces_endpoint(_endpoint))
         provider = provider_cls(resource=resource_cls.create({"service.name": _service_name}))
         provider.add_span_processor(processor_cls(exporter))
         # The provider is intentionally NOT installed as the global one. The

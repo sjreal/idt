@@ -20,8 +20,8 @@ COPY data ./data
 RUN uv sync --frozen --no-dev
 
 RUN useradd --create-home --uid 10001 appuser \
-    && mkdir -p /models/huggingface /app/results \
-    && chown -R appuser:appuser /models /app/results
+    && mkdir -p /models/huggingface /app/results /app/traces \
+    && chown -R appuser:appuser /models /app/results /app/traces
 USER appuser
 
 EXPOSE 8000

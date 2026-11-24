@@ -27,6 +27,7 @@ docker run --detach \
     --env OPENCODE_GO_API_KEY= \
     --env GUARDRAIL_LEVEL=off \
     --env EVALUATION_RESULTS_DIR=/tmp/ci-smoke-results \
+    --env TRACE_DIR=/tmp/ci-smoke-traces \
     idt-llm-cicd-api:ci >/dev/null
 
 docker run --detach \
