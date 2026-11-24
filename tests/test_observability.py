@@ -52,8 +52,18 @@ def test_prometheus_scrapes_api_and_github_actions_exporter_and_loads_alerts() -
     rules = [rule for group in alerts["groups"] for rule in group["rules"]]
 
     assert targets == {"api:8000", "github-actions-exporter:9101"}
-    assert {rule["alert"] for rule in rules} == {
+    alert_names = {rule["alert"] for rule in rules}
+    # Original alerts must remain; SLO/burn-rate alerts are additive.
+    assert {
         "LlmApiTargetDown",
         "LlmApiElevated5xxRate",
         "LlmGenerationProviderFailures",
-    }
+    } <= alert_names
+    assert {
+        "ChatAvailabilityFastBurn",
+        "ChatAvailabilitySlowBurn",
+        "GuardrailUnavailable",
+        "EvaluationRunAborted",
+        "CircuitOpenExtended",
+        "FallbackRateHigh",
+    } <= alert_names

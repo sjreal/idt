@@ -1,0 +1,26 @@
+# Observability-plane override.
+#
+# Used with the base file:
+#   docker compose -f docker-compose.yml -f docker-compose.observability.yml --profile observability up -d
+#
+# The base file leaves OTEL_EXPORTER_OTLP_ENDPOINT empty so that a plain
+# `docker compose up` produces zero exporter traffic and does not require the
+# trace plane to be running. This override points the app at the Phoenix
+# OTLP/HTTP collector, so enabling the observability profile actually wires
+# the trace plane end to end.
+#
+# Content capture stays off in both files: OTEL_CAPTURE_CONTENT and
+# TRACE_CAPTURE_CONTENT remain false unless explicitly set in the environment.
+
+name: idt-llm-cicd
+
+services:
+  api:
+    environment:
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://phoenix:6006/v1/traces}
+      OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-llm-guardrail-lab}
+      OTEL_CAPTURE_CONTENT: ${OTEL_CAPTURE_CONTENT:-false}
+      TRACE_CAPTURE_CONTENT: ${TRACE_CAPTURE_CONTENT:-false}
+      PHOENIX_UI_URL: ${PHOENIX_UI_URL:-http://localhost:6006}
+      PROMETHEUS_URL: ${PROMETHEUS_URL:-http://localhost:9090}
+      GRAFANA_URL: ${GRAFANA_URL:-http://localhost:3001}

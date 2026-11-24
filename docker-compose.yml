@@ -27,11 +27,41 @@ services:
       OPENCODE_GO_API_KEY: ${OPENCODE_GO_API_KEY:-}
       LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-120}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}
+      # Telemetry (opt-in; empty OTEL endpoint means zero exporter traffic)
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-llm-guardrail-lab}
+      OTEL_CAPTURE_CONTENT: ${OTEL_CAPTURE_CONTENT:-false}
+      TRACE_CAPTURE_CONTENT: ${TRACE_CAPTURE_CONTENT:-false}
+      TRACE_DIR: /app/traces
+      TRACE_RETENTION_DAYS: ${TRACE_RETENTION_DAYS:-7}
+      TRACE_MAX_BYTES: ${TRACE_MAX_BYTES:-50000000}
+      PHOENIX_UI_URL: ${PHOENIX_UI_URL:-http://localhost:6006}
+      PROMETHEUS_URL: ${PROMETHEUS_URL:-http://localhost:9090}
+      GRAFANA_URL: ${GRAFANA_URL:-http://localhost:3001}
+      # Guardrail depth
+      PREFILTER_BLOCK_THRESHOLD: ${PREFILTER_BLOCK_THRESHOLD:-0.80}
+      PREFILTER_ALLOW_THRESHOLD: ${PREFILTER_ALLOW_THRESHOLD:-0.20}
+      ADAPTIVE_ENABLED: ${ADAPTIVE_ENABLED:-true}
+      # Evaluation budget (small default; hard ceiling caps all overrides)
+      EVALUATION_DEFAULT_MAX_REQUESTS: ${EVALUATION_DEFAULT_MAX_REQUESTS:-60}
+      EVALUATION_HARD_MAX_REQUESTS: ${EVALUATION_HARD_MAX_REQUESTS:-300}
+      # Routing / circuit breaker
+      OPENCODE_GO_FALLBACK_MODELS: ${OPENCODE_GO_FALLBACK_MODELS:-}
+      CIRCUIT_FAILURE_THRESHOLD: ${CIRCUIT_FAILURE_THRESHOLD:-3}
+      CIRCUIT_COOLDOWN_SECONDS: ${CIRCUIT_COOLDOWN_SECONDS:-60}
+      # Hardening
+      API_AUTH_TOKEN: ${API_AUTH_TOKEN:-}
+      RATE_LIMIT_PER_MINUTE: ${RATE_LIMIT_PER_MINUTE:-60}
+      MAX_BODY_BYTES: ${MAX_BODY_BYTES:-1000000}
+      LOG_PROMPTS: ${LOG_PROMPTS:-false}
+      GENERATION_CONCURRENCY: ${GENERATION_CONCURRENCY:-2}
+      TRUSTED_HOSTS: ${TRUSTED_HOSTS:-}
     ports:
       - "127.0.0.1:8000:8000"
     volumes:
       - hf_cache:/models/huggingface
       - evaluation_results:/app/results
+      - trace_data:/app/traces
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 20s
@@ -60,6 +90,7 @@ services:
     volumes:
       - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./observability/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - ./observability/rules:/etc/prometheus/rules:ro
       - prometheus_data:/prometheus
     depends_on:
       api:
@@ -80,6 +111,25 @@ services:
       - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
     depends_on:
       - prometheus
+
+  # Optional trace plane. The app and its local JSONL trace buffer work without it.
+  # UI and OTLP/HTTP collector share port 6006; traces POST to /v1/traces.
+  phoenix:
+    image: arizephoenix/phoenix:22.0.1@sha256:cc8c5e545389a6aae9523beaf92eb067fdaeae59d2166093d60856f89bf7ee34
+    profiles: ["observability"]
+    environment:
+      PHOENIX_PORT: "6006"
+      PHOENIX_WORKING_DIR: /phoenix-data
+    ports:
+      - "127.0.0.1:6006:6006"
+    volumes:
+      - phoenix_data:/phoenix-data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:6006/')"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
   github-actions-exporter:
     image: idt-llm-cicd-api:latest
@@ -133,3 +183,5 @@ volumes:
   evaluation_results:
   prometheus_data:
   grafana_data:
+  trace_data:
+  phoenix_data:

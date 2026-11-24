@@ -66,6 +66,87 @@ jobs:
             --ignore-vuln PYSEC-2026-4174 \
             --ignore-vuln PYSEC-2026-3740
 
+  config-validation:
+    name: Provider-free config validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version-file: .python-version
+      - name: Check Prometheus rules with pinned promtool
+        run: |
+          docker run --rm \
+            --entrypoint promtool \
+            --volume "$PWD:/workspace:ro" \
+            --workdir /workspace \
+            prom/prometheus:v3.5.0 \
+            check rules observability/alerts.yml observability/rules/slo.yml
+      - name: Validate Docker Compose files (no containers started)
+        run: |
+          docker compose config --quiet
+          docker compose -f docker-compose.yml -f docker-compose.observability.yml \
+            --profile observability config --quiet
+      - name: Validate pricing, evaluation data, and dashboard JSON (offline)
+        env:
+          PYTHONPATH: src
+        run: |
+          python - <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+
+          from llm_app.pricing import get_catalog
+
+          root = Path(".")
+
+          # The loader checks pricing JSON syntax, schema version, required
+          # fields, and the committed integrity.sha256 checksum.
+          catalog = get_catalog()
+          assert catalog.schema_version == 1, catalog.schema_version
+          assert catalog.models, "pricing catalog has no models"
+
+          # Grafana dashboards must stay parseable; the live dashboard uid is pinned.
+          dashboard_dir = root / "observability" / "grafana" / "dashboards"
+          for path in sorted(dashboard_dir.glob("*.json")):
+              dashboard = json.loads(path.read_text(encoding="utf-8"))
+              assert isinstance(dashboard.get("uid"), str) and dashboard["uid"], path
+              assert isinstance(dashboard.get("panels"), list), path
+              if path.name == "llm-guardrail-lab.json":
+                  assert dashboard["uid"] == "llm-guardrail-lab-live", path
+
+          eval_dir = root / "data" / "evaluation"
+          manifest_paths = sorted(eval_dir.glob("*.json"))
+          assert manifest_paths, "no evaluation manifest JSON found"
+          manifests = []
+          for path in manifest_paths:
+              payload = json.loads(path.read_text(encoding="utf-8"))
+              assert isinstance(payload, dict), f"{path}: not a JSON object"
+              for key in ("file", "sha256", "records"):
+                  assert key in payload, f"{path}: missing {key}"
+              assert isinstance(payload["file"], str) and payload["file"], path
+              assert isinstance(payload["sha256"], str) and len(payload["sha256"]) == 64, path
+              assert isinstance(payload["records"], int) and payload["records"] >= 0, path
+              manifests.append(payload)
+
+          jsonl_paths = sorted(eval_dir.glob("*.jsonl"))
+          for path in jsonl_paths:
+              lines = [line for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+              for number, line in enumerate(lines, 1):
+                  assert isinstance(json.loads(line), dict), f"{path}:{number}: not an object"
+              digest = hashlib.sha256(path.read_bytes()).hexdigest()
+              matching = [manifest for manifest in manifests if manifest["file"] == path.name]
+              assert matching, f"{path}: no manifest declares this dataset"
+              for manifest in matching:
+                  assert manifest["sha256"] == digest, f"{path}: sha256 mismatch"
+                  assert manifest["records"] == len(lines), f"{path}: record count mismatch"
+
+          print(
+              f"Validated {len(manifest_paths)} JSON file(s), {len(jsonl_paths)} JSONL file(s), "
+              f"and pricing catalog sha256 {catalog.sha256}."
+          )
+          PY
+
   frontend:
     name: Frontend build
     runs-on: ubuntu-latest

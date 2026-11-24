@@ -18,7 +18,7 @@ from llm_app.guardrails import (
     OllamaLlamaGuard,
     ScannerResult,
 )
-from llm_app.main import app, get_backend, get_guardrail_pipeline
+from llm_app.main import app, get_backend, get_evaluation_manager, get_guardrail_pipeline
 from llm_app.metrics import GENERATION_RETRIES
 from llm_app.schemas import GuardrailFinding
 from llm_app.settings import get_settings
@@ -93,6 +93,7 @@ def test_health_reports_backend_status() -> None:
         "guardrail_level": "off",
         "guardrail_classifier_backend": "cloudflare",
         "guardrail_classifier_configured": False,
+        "adaptive_enabled": True,
     }
     app.dependency_overrides.clear()
 
@@ -141,7 +142,7 @@ def test_evaluation_summary_exposes_fixed_dataset_manifest() -> None:
 
 def test_evaluation_api_starts_and_persists_a_local_run(tmp_path, monkeypatch) -> None:
     manager = EvaluationRunManager(tmp_path)
-    monkeypatch.setattr("llm_app.main.get_evaluation_manager", lambda: manager)
+    app.dependency_overrides[get_evaluation_manager] = lambda: manager
     with get_test_client() as client:
         response = client.post(
             "/api/evaluations/runs",

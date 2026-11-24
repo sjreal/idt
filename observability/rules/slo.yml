@@ -1,0 +1,153 @@
+# Recording rules for LLM Guardrail Lab service-level objectives.
+#
+# PROVISIONAL: every target encoded here is an engineering guess until a
+# 7-day baseline has been collected. See docs/slo.md before changing values.
+# Metric label conventions follow src/llm_app/metrics.py (status_code, not
+# status); all records use the "slo:" prefix and inherit source labels.
+groups:
+  - name: llm-guardrail-lab-slo
+    interval: 30s
+    rules:
+      # ------------------------------------------------------------------
+      # Chat availability: non-5xx responses on the two chat endpoints.
+      # 4xx responses count as non-failing requests; /metrics is not
+      # instrumented and /health is excluded from the SLI by endpoint match.
+      # ------------------------------------------------------------------
+      - record: slo:chat_availability:error_ratio_7d
+        expr: |
+          sum(increase(llm_lab_http_requests_total{job="idt-api",endpoint=~"/api/chat|/v1/chat/completions",status_code=~"5.."}[7d]))
+          /
+          clamp_min(
+            sum(increase(llm_lab_http_requests_total{job="idt-api",endpoint=~"/api/chat|/v1/chat/completions"}[7d])),
+            1
+          )
+
+      - record: slo:chat_availability:ratio_7d
+        expr: 1 - slo:chat_availability:error_ratio_7d
+
+      # Chat request volume, used as a low-traffic guard on the burn alerts.
+      - record: slo:chat_requests:rate5m
+        expr: |
+          sum(rate(llm_lab_http_requests_total{job="idt-api",endpoint=~"/api/chat|/v1/chat/completions"}[5m]))
+
+      # Multiwindow burn-rate building blocks. Error budget is 1% (1 - 0.99),
+      # so burn rate = error ratio / 0.01.
+      - record: slo:chat_availability:error_ratio_5m
+        expr: |
+          sum(rate(llm_lab_http_requests_total{job="idt-api",endpoint=~"/api/chat|/v1/chat/completions",status_code=~"5.."}[5m]))
+          /
+          clamp_min(
+            sum(rate(llm_lab_http_requests_total{job="idt-api",endpoint=~"/api/chat|/v1/chat/completions"}[5m])),
+            0.000001
+          )
+
+      - record: slo:chat_availability:error_ratio_1h
+        expr: |
+          sum(rate(llm_lab_http_requests_total{job="idt-api",endpoint=~"/api/chat|/v1/chat/completions",status_code=~"5.."}[1h]))
+          /
+          clamp_min(
+            sum(rate(llm_lab_http_requests_total{job="idt-api",endpoint=~"/api/chat|/v1/chat/completions"}[1h])),
+            0.000001
+          )
+
+      - record: slo:chat_availability:error_ratio_30m
+        expr: |
+          sum(rate(llm_lab_http_requests_total{job="idt-api",endpoint=~"/api/chat|/v1/chat/completions",status_code=~"5.."}[30m]))
+          /
+          clamp_min(
+            sum(rate(llm_lab_http_requests_total{job="idt-api",endpoint=~"/api/chat|/v1/chat/completions"}[30m])),
+            0.000001
+          )
+
+      - record: slo:chat_availability:error_ratio_6h
+        expr: |
+          sum(rate(llm_lab_http_requests_total{job="idt-api",endpoint=~"/api/chat|/v1/chat/completions",status_code=~"5.."}[6h]))
+          /
+          clamp_min(
+            sum(rate(llm_lab_http_requests_total{job="idt-api",endpoint=~"/api/chat|/v1/chat/completions"}[6h])),
+            0.000001
+          )
+
+      - record: slo:chat_availability:burn_rate_5m
+        expr: slo:chat_availability:error_ratio_5m / 0.01
+
+      - record: slo:chat_availability:burn_rate_1h
+        expr: slo:chat_availability:error_ratio_1h / 0.01
+
+      - record: slo:chat_availability:burn_rate_30m
+        expr: slo:chat_availability:error_ratio_30m / 0.01
+
+      - record: slo:chat_availability:burn_rate_6h
+        expr: slo:chat_availability:error_ratio_6h / 0.01
+
+      # ------------------------------------------------------------------
+      # Chat latency (end-to-end, 5m rate over the duration histogram).
+      # Single encoded target: <= 10s p95 for the OpenCode/Go backend.
+      # Local/Ollama is expected to be <= 3s, but the histogram has no
+      # backend label, so only the 10s target is recorded here.
+      # ------------------------------------------------------------------
+      - record: slo:chat_latency:p95_seconds
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le) (
+              rate(llm_lab_http_request_duration_seconds_bucket{job="idt-api",endpoint=~"/api/chat|/v1/chat/completions"}[5m])
+            )
+          )
+
+      # ------------------------------------------------------------------
+      # Guardrail latency. Targets: <= 1.5s p95 for cloudflare (full level)
+      # and <= 300ms p95 for the local scanners backend (llm-guard).
+      # ------------------------------------------------------------------
+      - record: slo:guardrail_latency:p95_seconds_by_backend
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le, backend) (
+              rate(llm_lab_guardrail_check_duration_seconds_bucket{job="idt-api"}[5m])
+            )
+          )
+
+      - record: slo:guardrail_latency:p95_seconds_cloudflare
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le) (
+              rate(llm_lab_guardrail_check_duration_seconds_bucket{job="idt-api",backend="cloudflare"}[5m])
+            )
+          )
+
+      - record: slo:guardrail_latency:p95_seconds_scanners
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le) (
+              rate(llm_lab_guardrail_check_duration_seconds_bucket{job="idt-api",backend=~"llm-guard|llm_guard|scanners"}[5m])
+            )
+          )
+
+      # ------------------------------------------------------------------
+      # Evaluation completion. Case outcomes other than error/failed/aborted
+      # count as completed. Run statuses "completed" and
+      # "completed_with_errors" both reached the end of the run; only
+      # "failed" and "aborted_budget" consume the run budget.
+      # ------------------------------------------------------------------
+      - record: slo:eval_cases:completion_ratio_1h
+        expr: |
+          1 - (
+            sum(increase(llm_lab_evaluation_cases_total{job="idt-api",outcome=~"error|failed|aborted"}[1h]))
+            /
+            clamp_min(
+              sum(increase(llm_lab_evaluation_cases_total{job="idt-api"}[1h])),
+              1
+            )
+          )
+
+      - record: slo:eval_runs:completion_ratio_24h
+        expr: |
+          sum(increase(llm_lab_evaluation_runs_total{job="idt-api",status=~"completed|completed_with_errors"}[24h]))
+          /
+          clamp_min(
+            sum(increase(llm_lab_evaluation_runs_total{job="idt-api",status=~"completed|completed_with_errors|failed|aborted_budget"}[24h])),
+            1
+          )

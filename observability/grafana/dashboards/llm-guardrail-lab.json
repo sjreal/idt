@@ -252,6 +252,102 @@
       "targets": [{ "expr": "count(ALERTS{alertstate=\"firing\"}) or vector(0)", "legendFormat": "firing alerts", "refId": "A" }],
       "title": "Firing Prometheus alerts",
       "type": "stat"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 72 },
+      "id": 25,
+      "panels": [],
+      "title": "SLO — error budget & burn rate",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1, "decimals": 2 }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 6, "x": 0, "y": 73 },
+      "id": 26,
+      "options": { "colorMode": "value", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false } },
+      "targets": [{ "expr": "clamp_min(1 - (slo:chat_availability:error_ratio_7d / 0.01), 0)", "legendFormat": "budget remaining", "refId": "A" }],
+      "title": "SLO — Error budget remaining (7d)",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short", "min": 0 }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 6, "y": 73 },
+      "id": 27,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        { "expr": "slo:chat_availability:burn_rate_5m", "legendFormat": "fast · 5m", "refId": "A" },
+        { "expr": "slo:chat_availability:burn_rate_1h", "legendFormat": "fast · 1h (alert > 14.4)", "refId": "B" },
+        { "expr": "slo:chat_availability:burn_rate_30m", "legendFormat": "slow · 30m", "refId": "C" },
+        { "expr": "slo:chat_availability:burn_rate_6h", "legendFormat": "slow · 6h (alert > 6)", "refId": "D" }
+      ],
+      "title": "SLO — Burn rate (fast 1h/5m, slow 6h/30m)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0 }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 73 },
+      "id": 28,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        { "expr": "slo:chat_availability:error_ratio_5m", "legendFormat": "5m", "refId": "A" },
+        { "expr": "slo:chat_availability:error_ratio_7d", "legendFormat": "7d rolling", "refId": "B" }
+      ],
+      "title": "SLO — Chat error rate",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s", "min": 0 }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 81 },
+      "id": 29,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [{ "expr": "slo:chat_latency:p95_seconds", "legendFormat": "chat p95 (≤ 10s target)", "refId": "A" }],
+      "title": "SLO — Chat p95 latency",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 89 },
+      "id": 30,
+      "panels": [],
+      "title": "Links — traces and SLO docs",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "datasource", "uid": "grafana" },
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 90 },
+      "id": 31,
+      "options": { "content": "<a href=\"http://localhost:6006\" target=\"_blank\" rel=\"noopener noreferrer\">Open Phoenix traces →</a><br/><small>http://localhost:6006 — start with the <code>observability</code> profile.</small>", "mode": "html" },
+      "title": "Phoenix (per-request traces)",
+      "type": "text"
+    },
+    {
+      "datasource": { "type": "datasource", "uid": "grafana" },
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 90 },
+      "id": 32,
+      "options": { "content": "<a href=\"http://localhost:3000\" target=\"_blank\" rel=\"noopener noreferrer\">Open the in-app trace viewer →</a><br/><small>http://localhost:3000 — served by the frontend; open the Traces view in the app (no standalone URL yet).</small>", "mode": "html" },
+      "title": "In-app trace viewer",
+      "type": "text"
+    },
+    {
+      "datasource": { "type": "datasource", "uid": "grafana" },
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 90 },
+      "id": 33,
+      "options": { "content": "<a href=\"http://localhost:9090\" target=\"_blank\" rel=\"noopener noreferrer\">Open Prometheus →</a><br/><small>http://localhost:9090 — raw metrics, recording rules, and alert state.</small>", "mode": "html" },
+      "title": "Prometheus",
+      "type": "text"
+    },
+    {
+      "datasource": { "type": "datasource", "uid": "grafana" },
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 90 },
+      "id": 34,
+      "options": { "content": "<b>SLO definitions and budget policy</b><br/><small><code>docs/slo.md</code> in this repository — provisional targets, 7-day baseline, exclusions, and what to do when the budget is exhausted. Recording rules: <code>observability/rules/slo.yml</code>.</small>", "mode": "html" },
+      "title": "SLO documentation",
+      "type": "text"
     }
   ],
   "refresh": "10s",

@@ -34,3 +34,91 @@ groups:
         annotations:
           summary: Repeated model-provider failures
           description: The selected generation provider/model has failed at least three times in ten minutes.
+
+  # SLO-based alerts. Thresholds are PROVISIONAL until a 7-day baseline;
+  # see docs/slo.md and observability/rules/slo.yml for definitions.
+  - name: llm-guardrail-lab-slo-alerts
+    interval: 30s
+    rules:
+      # Fast burn: 14.4x the 1% error budget (1h + 5m windows).
+      - alert: ChatAvailabilityFastBurn
+        expr: |
+          slo:chat_availability:burn_rate_1h > 14.4
+          and slo:chat_availability:burn_rate_5m > 14.4
+          and slo:chat_requests:rate5m > 0.005
+        for: 2m
+        labels:
+          severity: page
+        annotations:
+          summary: Chat availability fast error-budget burn
+          description: Chat requests have exceeded a 14.4x burn of the 1% error budget over both 1h and 5m windows.
+          runbook_url: "TODO: add runbook URL for chat availability fast burn"
+
+      # Slow burn: 6x the 1% error budget (6h + 30m windows).
+      - alert: ChatAvailabilitySlowBurn
+        expr: |
+          slo:chat_availability:burn_rate_6h > 6
+          and slo:chat_availability:burn_rate_30m > 6
+          and slo:chat_requests:rate5m > 0.005
+        for: 15m
+        labels:
+          severity: ticket
+        annotations:
+          summary: Chat availability slow error-budget burn
+          description: Chat requests have exceeded a 6x burn of the 1% error budget over both 6h and 30m windows.
+          runbook_url: "TODO: add runbook URL for chat availability slow burn"
+
+      - alert: GuardrailUnavailable
+        expr: |
+          (
+            (
+              sum(rate(llm_lab_guardrail_checks_total{job="idt-api",outcome=~"error|unavailable|timeout"}[5m]))
+              /
+              clamp_min(sum(rate(llm_lab_guardrail_checks_total{job="idt-api"}[5m])), 0.000001)
+            ) > 0.5
+            and sum(rate(llm_lab_guardrail_checks_total{job="idt-api"}[5m])) > 0.01
+          )
+          or absent(llm_lab_guardrail_checks_total{job="idt-api"})
+        for: 10m
+        labels:
+          severity: page
+        annotations:
+          summary: Guardrail checks are unavailable
+          description: More than half of recent guardrail checks failed, or no guardrail check metrics have been collected for 10 minutes.
+          runbook_url: "TODO: add runbook URL for guardrail outage"
+
+      - alert: EvaluationRunAborted
+        expr: |
+          sum by (status) (increase(llm_lab_evaluation_runs_total{job="idt-api",status=~"aborted_budget|failed"}[10m])) > 0
+        labels:
+          severity: ticket
+        annotations:
+          summary: Evaluation run aborted or failed
+          description: An evaluation run ended with status aborted_budget or failed in the last 10 minutes.
+          runbook_url: "TODO: add runbook URL for evaluation run aborts"
+
+      - alert: CircuitOpenExtended
+        expr: max(llm_lab_circuit_open{job="idt-api"}) == 1
+        for: 2m
+        labels:
+          severity: page
+        annotations:
+          summary: Circuit breaker has been open for more than two minutes
+          description: A circuit breaker remains open, so dependent generation or guardrail calls are being short-circuited.
+          runbook_url: "TODO: add runbook URL for open circuit breaker"
+
+      - alert: FallbackRateHigh
+        expr: |
+          (
+            sum(rate(llm_lab_fallback_total{job="idt-api"}[5m]))
+            /
+            clamp_min(sum(rate(llm_lab_generation_requests_total{job="idt-api"}[5m])), 0.000001)
+          ) > 0.10
+          and sum(rate(llm_lab_generation_requests_total{job="idt-api"}[5m])) > 0.01
+        for: 15m
+        labels:
+          severity: ticket
+        annotations:
+          summary: Generation fallback rate is above 10%
+          description: More than 10% of generation requests are being served by a fallback backend over the last 15 minutes.
+          runbook_url: "TODO: add runbook URL for elevated fallback rate"

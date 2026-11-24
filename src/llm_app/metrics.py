@@ -34,6 +34,16 @@ GENERATION_TOKENS = Counter(
     "Prompt and completion tokens returned by generation backends.",
     ("backend", "model", "token_type"),
 )
+GENERATION_COST_USD = Counter(
+    "llm_lab_generation_cost_usd",
+    "Generation cost in USD, split by notional list price and marginal spend.",
+    ("backend", "model", "cost_type"),
+)
+GUARDRAIL_COST_USD = Counter(
+    "llm_lab_guardrail_cost_usd",
+    "Guardrail cost in USD where a provider rate is published.",
+    ("backend", "model"),
+)
 GUARDRAIL_CHECKS = Counter(
     "llm_lab_guardrail_checks",
     "Input and output guardrail checks.",
@@ -58,4 +68,49 @@ EVALUATION_CASES = Counter(
     "llm_lab_evaluation_cases",
     "Evaluation cases recorded by arm and case type.",
     ("arm", "kind", "outcome"),
+)
+PROVIDER_ALLOWANCE_USED = Gauge(
+    "llm_lab_provider_allowance_used",
+    "Provider allowance consumed (tokens, neurons, or requests depending on unit).",
+    ("backend", "model", "unit"),
+)
+PREFILTER_DECISIONS = Counter(
+    "llm_lab_prefilter_decisions",
+    "Cheap prefilter decisions by outcome.",
+    ("decision",),
+)
+ADAPTIVE_DECISIONS = Counter(
+    "llm_lab_adaptive_decisions",
+    "Adaptive arm routing paths (block, pass, full).",
+    ("path",),
+)
+FALLBACK_TOTAL = Counter(
+    "llm_lab_fallback_total",
+    "Generation fallbacks from one model to another.",
+    ("from_model", "to_model", "reason"),
+)
+CIRCUIT_OPEN = Gauge(
+    "llm_lab_circuit_open",
+    "Whether a model's circuit breaker is open (1) or closed (0).",
+    ("model",),
+)
+AUTH_FAILURES = Counter(
+    "llm_lab_auth_failures",
+    "Rejected requests that failed authentication.",
+    ("route",),
+)
+RATE_LIMITED = Counter(
+    "llm_lab_rate_limited",
+    "Requests rejected by the rate limiter.",
+    ("route",),
+)
+TRACE_BUFFER_DROPPED = Counter(
+    "llm_lab_trace_buffer_dropped",
+    "Trace records dropped by the local buffer.",
+    ("reason",),
+)
+CLASSIFIER_INVOCATIONS = Counter(
+    "llm_lab_classifier_invocations",
+    "Safety classifier invocations by backend and stage.",
+    ("backend", "stage"),
 )

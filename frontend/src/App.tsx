@@ -1,30 +1,57 @@
 import { lazy, Suspense, useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
-import { ArrowDown, ArrowUp, Bot, Check, CircleHelp, GitBranch, LoaderCircle, Plus, ShieldCheck, Sparkles } from 'lucide-react'
+import {
+  ArrowDown,
+  ArrowUp,
+  Bot,
+  Check,
+  CircleDollarSign,
+  CircleHelp,
+  GitBranch,
+  GitCompareArrows,
+  LoaderCircle,
+  Plus,
+  Route,
+  ShieldCheck,
+  Sparkles,
+} from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import rehypeSanitize from 'rehype-sanitize'
 import remarkGfm from 'remark-gfm'
 import { Button } from './components/ui/button'
+import {
+  GUARDRAIL_ARMS,
+  armLabel,
+  armIsDisabled,
+  armNeedsClassifier,
+  costLabel,
+  shortId,
+  type ChatResponse,
+  type CostInfo,
+  type GuardrailArm,
+  type GuardrailVerdict,
+  type ModelListResponse,
+} from './lib/phase2'
 import './App.css'
 
 const WORD_STREAM_DELAY_MS = 28
 const EvaluationPage = lazy(() => import('./pages/EvaluationPage').then((module) => ({ default: module.EvaluationPage })))
+const ComparePage = lazy(() => import('./pages/ComparePage').then((module) => ({ default: module.ComparePage })))
+const TracePage = lazy(() => import('./pages/TracePage').then((module) => ({ default: module.TracePage })))
+const ModelsPage = lazy(() => import('./pages/ModelsPage').then((module) => ({ default: module.ModelsPage })))
+
+type GuardrailLevel = GuardrailArm
+type ActivePage = 'chat' | 'evaluation' | 'compare' | 'traces' | 'models'
 
 type Message = {
   role: 'user' | 'assistant'
   content: string
   latencyMs?: number
   guardrail?: GuardrailVerdict
-}
-
-type GuardrailLevel = 'off' | 'scanners' | 'full'
-
-type GuardrailVerdict = {
-  level: GuardrailLevel
-  outcome: 'passed' | 'redacted' | 'blocked'
-  blocked: boolean
-  blocked_by?: string | null
-  category?: string | null
-  latency_ms: number
+  traceId?: string | null
+  cost?: CostInfo | null
+  answeredBy?: string
+  fallbackUsed?: boolean
+  fallbackFrom?: string | null
 }
 
 type Health = {
@@ -35,16 +62,7 @@ type Health = {
   guardrail_level: GuardrailLevel
   guardrail_classifier_backend: 'cloudflare' | 'ollama'
   guardrail_classifier_configured: boolean
-}
-
-type ModelListResponse = { data: Array<{ id: string }> }
-
-type ChatResponse = {
-  answer: string
-  model: string
-  latency_ms: number
-  guardrail: GuardrailVerdict
-  sanitized_user_message: string | null
+  adaptive_enabled?: boolean
 }
 
 type ContextMessage = { role: 'user' | 'assistant'; content: string }
@@ -70,9 +88,10 @@ function App() {
   const [availableModels, setAvailableModels] = useState<string[]>([])
   const [modelOverride, setModelOverride] = useState<string | null>(null)
   const [guardrailOverride, setGuardrailOverride] = useState<GuardrailLevel | null>(null)
-  const [activePage, setActivePage] = useState<'chat' | 'evaluation'>('chat')
+  const [activePage, setActivePage] = useState<ActivePage>('chat')
+  const [selectedTraceId, setSelectedTraceId] = useState<string | null>(null)
   const [sessionId, setSessionId] = useState(newSessionId)
-  const guardrailLevel = guardrailOverride ?? health?.guardrail_level ?? 'off'
+  const guardrailLevel = guardrailOverride ?? 'off'
   const selectedModel = availableModels.length
     ? modelOverride && availableModels.includes(modelOverride)
       ? modelOverride
@@ -166,6 +185,11 @@ function App() {
         content: '',
         latencyMs: result.latency_ms,
         guardrail: result.guardrail,
+        traceId: result.trace_id,
+        cost: result.cost,
+        answeredBy: result.model,
+        fallbackUsed: result.fallback_used,
+        fallbackFrom: result.fallback_from,
       }
       const wordChunks = answer.match(/\S+\s*/g) ?? [answer]
       let visibleAnswer = ''
@@ -210,6 +234,16 @@ function App() {
     }
   }
 
+  const navigate = (page: ActivePage) => {
+    if (page !== 'traces') setSelectedTraceId(null)
+    setActivePage(page)
+  }
+
+  const openTrace = (traceId: string) => {
+    setSelectedTraceId(traceId)
+    setActivePage('traces')
+  }
+
   return (
     <main className="app-shell">
       <aside className="sidebar">
@@ -225,13 +259,31 @@ function App() {
         <div className="sidebar-label">WORKSPACE</div>
         <button
           className={`nav-item ${activePage === 'chat' ? 'active' : ''}`}
-          onClick={() => setActivePage('chat')}
+          onClick={() => navigate('chat')}
         >
           <Bot size={17} /><span>Chat playground</span>
         </button>
         <button
+          className={`nav-item ${activePage === 'compare' ? 'active' : ''}`}
+          onClick={() => navigate('compare')}
+        >
+          <GitCompareArrows size={17} /><span>Compare</span>
+        </button>
+        <button
+          className={`nav-item ${activePage === 'traces' ? 'active' : ''}`}
+          onClick={() => navigate('traces')}
+        >
+          <Route size={17} /><span>Traces</span>
+        </button>
+        <button
+          className={`nav-item ${activePage === 'models' ? 'active' : ''}`}
+          onClick={() => navigate('models')}
+        >
+          <CircleDollarSign size={17} /><span>Models / Cost</span>
+        </button>
+        <button
           className={`nav-item ${activePage === 'evaluation' ? 'active' : ''}`}
-          onClick={() => setActivePage('evaluation')}
+          onClick={() => navigate('evaluation')}
         >
           <ShieldCheck size={17} /><span>Security evaluation</span>
         </button>
@@ -276,17 +328,22 @@ function App() {
                 onChange={(event) => setGuardrailOverride(event.target.value as GuardrailLevel)}
                 aria-label="Guardrail mode"
               >
-                <option value="off">Off</option>
-                <option value="scanners">Scanners</option>
-                <option
-                  value="full"
-                  disabled={!health?.guardrail_classifier_configured && guardrailLevel !== 'full'}
-                  title={health?.guardrail_classifier_backend === 'cloudflare'
-                    ? 'Full mode needs Cloudflare Workers AI credentials.'
-                    : 'Full mode requires the local llama-guard3:1b model.'}
-                >
-                  {health?.guardrail_classifier_configured ? 'Full' : 'Full · setup needed'}
-                </option>
+                {GUARDRAIL_ARMS.map((arm) => {
+                  const unconfigured = !health?.guardrail_classifier_configured
+                  const disabled = armIsDisabled(arm.id, health?.adaptive_enabled)
+                  return (
+                    <option
+                      key={arm.id}
+                      value={arm.id}
+                      disabled={
+                        disabled || (unconfigured && arm.requiresClassifier && arm.id !== guardrailLevel)
+                      }
+                      title={disabled ? 'Disabled by ADAPTIVE_ENABLED=false' : arm.setupTitle}
+                    >
+                      {armLabel(arm.id, health?.guardrail_classifier_configured)}
+                    </option>
+                  )
+                })}
               </select>
             </label>
             <div className={`connection-status ${health?.llm_connected ? 'connected' : ''}`}>
@@ -324,6 +381,26 @@ function App() {
                     <div className="message-meta">
                       <strong>{message.role === 'assistant' ? 'Guardrail Lab' : 'You'}</strong>
                       {message.latencyMs !== undefined && <span>{(message.latencyMs / 1000).toFixed(2)}s</span>}
+                      {message.role === 'assistant' && message.traceId && (
+                        <button
+                          className="meta-chip meta-chip-link"
+                          type="button"
+                          onClick={() => openTrace(message.traceId as string)}
+                          title={`Open trace ${message.traceId}`}
+                        >
+                          trace {shortId(message.traceId)}
+                        </button>
+                      )}
+                      {message.role === 'assistant' && message.answeredBy && (
+                        <span className="meta-chip" title={message.fallbackFrom ? `Fallback from ${message.fallbackFrom}` : 'Model that produced this answer'}>
+                          answered by {message.answeredBy}{message.fallbackUsed ? ' (fallback)' : ''}
+                        </span>
+                      )}
+                      {message.role === 'assistant' && (
+                        <span className={`meta-chip ${message.cost?.priced ? '' : 'meta-chip-muted'}`} title="Notional list-price equivalent vs marginal USD for this request">
+                          {costLabel(message.cost)}
+                        </span>
+                      )}
                     </div>
                     {message.guardrail && (
                       <div className={`guardrail-verdict ${message.guardrail.outcome}`}>
@@ -373,12 +450,12 @@ function App() {
           {!health?.llm_connected && messages.length === 0 && (
             <div className="setup-hint"><span className="hint-icon"><Check size={13} /></span> {health?.backend === 'opencode-go' ? 'Configure OPENCODE_GO_API_KEY to connect your Go account.' : 'Start Ollama and pull the configured model to begin chatting.'}</div>
           )}
-          {guardrailLevel === 'full' && !health?.guardrail_classifier_configured && messages.length === 0 && (
+          {armNeedsClassifier(guardrailLevel) && !health?.guardrail_classifier_configured && messages.length === 0 && (
             <div className="setup-hint guardrail-hint">
               <span className="hint-icon"><Check size={13} /></span>
               {health?.guardrail_classifier_backend === 'cloudflare'
-                ? 'Configure CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN in .env.'
-                : <>Enable the Ollama profile, then run <code>make guard-model-pull</code>.</>}
+                ? `Configure CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN in .env to use ${armLabel(guardrailLevel)}.`
+                : <>Enable the Ollama profile, then run <code>make guard-model-pull</code> to use {armLabel(guardrailLevel)}.</>}
             </div>
           )}
           <form className="composer" onSubmit={onSubmit}>
@@ -404,7 +481,27 @@ function App() {
           </form>
           <div className="disclaimer">AI responses can be inaccurate. Requests are sent to the configured model provider.</div>
         </div>
-      </section> : <section className="main-panel"><Suspense fallback={<div className="evaluation-loading">Loading evaluation dashboard…</div>}><EvaluationPage health={health} generationModel={selectedModel} availableModels={availableModels} onGenerationModelChange={setModelOverride} onBackToChat={() => setActivePage('chat')} /></Suspense></section>}
+      </section> : <section className="main-panel">
+        <Suspense fallback={<div className="evaluation-loading">Loading workspace…</div>}>
+          {activePage === 'evaluation' && (
+            <EvaluationPage
+              health={health}
+              generationModel={selectedModel}
+              availableModels={availableModels}
+              onGenerationModelChange={setModelOverride}
+              onBackToChat={() => navigate('chat')}
+              onOpenTrace={openTrace}
+            />
+          )}
+          {activePage === 'compare' && (
+            <ComparePage onBackToChat={() => navigate('chat')} onOpenTrace={openTrace} />
+          )}
+          {activePage === 'traces' && (
+            <TracePage initialTraceId={selectedTraceId} onBackToChat={() => navigate('chat')} />
+          )}
+          {activePage === 'models' && <ModelsPage onBackToChat={() => navigate('chat')} />}
+        </Suspense>
+      </section>}
     </main>
   )
 }

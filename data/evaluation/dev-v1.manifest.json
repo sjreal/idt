@@ -1,0 +1,9 @@
+{
+  "version": "dev-v1",
+  "file": "dev-v1.jsonl",
+  "sha256": "a19312a26db2cd394c7776d4e8c2dc0f474d201ef08982c9630d9a6636ea0e9b",
+  "records": 20,
+  "attacks": 12,
+  "benign": 8,
+  "provenance": "Project-authored calibration-only development set. Distinct from the pinned v2.0.0 reported corpus. Used exclusively for prefilter/adaptive threshold selection; never included in reported arm comparisons. No real personal data or third-party corpus is redistributed."
+}

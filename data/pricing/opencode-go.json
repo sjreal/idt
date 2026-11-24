@@ -1,0 +1,247 @@
+{
+  "billing_mode": "subscription",
+  "currency": "USD",
+  "guardrails": {
+    "cloudflare-workers-ai": {
+      "billing": "neurons",
+      "free_neurons_per_day": 10000,
+      "models": {
+        "@cf/meta/llama-guard-3-8b": {
+          "neurons_per_million_input_tokens": null,
+          "notes": "Cloudflare does not publish a per-token neuron rate on the model page. Token counts are recorded; guardrail cost stays unpriced until a rate is available."
+        }
+      },
+      "retrieved_date": "2026-11-23",
+      "source_url": "https://developers.cloudflare.com/workers-ai/platform/pricing/",
+      "usd_per_million_neurons": 11.0
+    },
+    "llm-guard": {
+      "billing": "local",
+      "notes": "Runs on local CPU; marginal USD is zero.",
+      "usd_per_request": 0.0
+    },
+    "ollama": {
+      "billing": "local",
+      "notes": "Runs locally; marginal USD is zero.",
+      "usd_per_request": 0.0
+    }
+  },
+  "integrity": {
+    "algorithm": "sha256",
+    "sha256": "00ff119cf3c9b7eb50d4de6f8e6abaf96c735365cdba137fa7d2eaa4a9b57ef2"
+  },
+  "models": {
+    "beam-free": {
+      "cached_input_per_mtok": 0,
+      "free": true,
+      "input_per_mtok": 0,
+      "limits": {
+        "context": 1048576,
+        "output": 131072
+      },
+      "notes": "Beam Free",
+      "output_per_mtok": 0
+    },
+    "deepseek-v4-pro": {
+      "cached_input_per_mtok": 0.022,
+      "free": false,
+      "input_per_mtok": 0.66,
+      "limits": {
+        "context": 1000000,
+        "output": 384000
+      },
+      "notes": "DeepSeek V4 Pro",
+      "output_per_mtok": 1.98
+    },
+    "deepseek-v4.1-flash": {
+      "cached_input_per_mtok": 0.003,
+      "free": false,
+      "input_per_mtok": 0.15,
+      "limits": {
+        "context": 1000000,
+        "output": 384000
+      },
+      "notes": "DeepSeek V4.1 Flash 1017",
+      "output_per_mtok": 0.6
+    },
+    "glm-5.2": {
+      "cached_input_per_mtok": 0.26,
+      "free": false,
+      "input_per_mtok": 1.4,
+      "limits": {
+        "context": 1000000,
+        "output": 131072
+      },
+      "notes": "GLM-5.2",
+      "output_per_mtok": 4.4
+    },
+    "glm-5.3": {
+      "cached_input_per_mtok": 0.26,
+      "free": false,
+      "input_per_mtok": 1.4,
+      "limits": {
+        "context": 1000000,
+        "output": 131072
+      },
+      "notes": "GLM-5.3",
+      "output_per_mtok": 4.4
+    },
+    "glm-5.3-flash": {
+      "cached_input_per_mtok": 0.03,
+      "free": false,
+      "input_per_mtok": 0.15,
+      "limits": {
+        "context": 1000000,
+        "output": 131072
+      },
+      "notes": "GLM-5.3-Flash",
+      "output_per_mtok": 0.5
+    },
+    "hy3": {
+      "cached_input_per_mtok": 0.035,
+      "free": false,
+      "input_per_mtok": 0.14,
+      "limits": {
+        "context": 256000,
+        "output": 128000
+      },
+      "notes": "Hy3",
+      "output_per_mtok": 0.58
+    },
+    "hy4-preview": {
+      "cached_input_per_mtok": 0.042,
+      "free": false,
+      "input_per_mtok": 0.834,
+      "limits": {
+        "context": 1024000,
+        "output": 64000
+      },
+      "notes": "Hy4 preview",
+      "output_per_mtok": 2.501
+    },
+    "kimi-k2.6": {
+      "cached_input_per_mtok": null,
+      "free": false,
+      "input_per_mtok": null,
+      "limits": {},
+      "notes": "Not present in the upstream snapshot; pricing unknown.",
+      "output_per_mtok": null
+    },
+    "kimi-k2.7-code": {
+      "cached_input_per_mtok": 0.19,
+      "free": false,
+      "input_per_mtok": 0.95,
+      "limits": {
+        "context": 262144,
+        "output": 262144
+      },
+      "notes": "Kimi K2.7 Code",
+      "output_per_mtok": 4
+    },
+    "kimi-k3": {
+      "cached_input_per_mtok": 0.3,
+      "free": false,
+      "input_per_mtok": 3,
+      "limits": {
+        "context": 1048576,
+        "output": 1048576
+      },
+      "notes": "Kimi K3",
+      "output_per_mtok": 15
+    },
+    "kimi-k3.1-pro": {
+      "cached_input_per_mtok": 0.2,
+      "free": false,
+      "input_per_mtok": 2,
+      "limits": {
+        "context": 1048576,
+        "output": 1048576
+      },
+      "notes": "Kimi K3.1 Pro",
+      "output_per_mtok": 10
+    },
+    "longcat-2.0": {
+      "cached_input_per_mtok": 0.006,
+      "free": false,
+      "input_per_mtok": 0.3,
+      "limits": {
+        "context": 1000000,
+        "output": 131072
+      },
+      "notes": "LongCat-2.0",
+      "output_per_mtok": 1.2
+    },
+    "mimo-v2.5": {
+      "cached_input_per_mtok": 0.0028,
+      "free": false,
+      "input_per_mtok": 0.14,
+      "limits": {
+        "context": 1000000,
+        "output": 128000
+      },
+      "notes": "MiMo V2.5",
+      "output_per_mtok": 0.28
+    },
+    "mimo-v2.5-pro": {
+      "cached_input_per_mtok": 0.003625,
+      "free": false,
+      "input_per_mtok": 0.435,
+      "limits": {
+        "context": 1048576,
+        "output": 128000
+      },
+      "notes": "MiMo V2.5 Pro",
+      "output_per_mtok": 0.87
+    },
+    "mimo-v2.6-flash": {
+      "cached_input_per_mtok": 0.0028,
+      "free": false,
+      "input_per_mtok": 0.14,
+      "limits": {
+        "context": 1048576,
+        "output": 131072
+      },
+      "notes": "MiMo-V2.6-Flash",
+      "output_per_mtok": 0.28
+    },
+    "mimo-v2.6-pro": {
+      "cached_input_per_mtok": 0.003625,
+      "free": false,
+      "input_per_mtok": 0.435,
+      "limits": {
+        "context": 1048576,
+        "output": 131072
+      },
+      "notes": "MiMo-V2.6-Pro",
+      "output_per_mtok": 0.87
+    },
+    "minimax-m3.1-flash": {
+      "cached_input_per_mtok": 0.015,
+      "free": false,
+      "input_per_mtok": 0.15,
+      "limits": {
+        "context": 1000000,
+        "output": 512000
+      },
+      "notes": "MiniMax M3.1 Flash",
+      "output_per_mtok": 0.6
+    },
+    "step-5-preview": {
+      "cached_input_per_mtok": 0.1,
+      "free": false,
+      "input_per_mtok": 1,
+      "limits": {
+        "context": 1000000,
+        "output": 65536
+      },
+      "notes": "Step 5 Preview",
+      "output_per_mtok": 2.7
+    }
+  },
+  "notes": "Notional list-price equivalent for OpenCode Go (subscription plan). marginal_usd is zero inside the plan allowance; quota is tracked separately. Prices are USD per million tokens.",
+  "provider": "opencode-go",
+  "provider_doc_url": "https://opencode.ai/v2/docs/console/go/",
+  "retrieved_at": "2026-11-23",
+  "schema_version": 1,
+  "source_url": "https://models.dev/api.json"
+}
