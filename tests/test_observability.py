@@ -67,3 +67,22 @@ def test_prometheus_scrapes_api_and_github_actions_exporter_and_loads_alerts() -
         "CircuitOpenExtended",
         "FallbackRateHigh",
     } <= alert_names
+
+
+def test_guardrail_alert_does_not_fire_on_an_absent_metric() -> None:
+    """The baseline arm runs no stage, so no guardrail series exist.
+
+    An ``absent()`` clause would fire on a healthy system that only used the
+    ``off`` arm. The alert must key off the error ratio alone.
+    """
+    root = Path(__file__).resolve().parents[1] / "observability"
+    alerts = yaml.safe_load((root / "alerts.yml").read_text(encoding="utf-8"))
+    rules = {
+        rule["alert"]: rule
+        for group in alerts["groups"]
+        for rule in group["rules"]
+    }
+
+    expr = rules["GuardrailUnavailable"]["expr"]
+    assert "absent(" not in expr
+    assert "llm_lab_guardrail_checks_total" in expr

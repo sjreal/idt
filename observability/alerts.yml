@@ -69,22 +69,23 @@ groups:
           runbook_url: "TODO: add runbook URL for chat availability slow burn"
 
       - alert: GuardrailUnavailable
+        # Only the error ratio is used here. An absent llm_lab_guardrail_checks_total
+        # is not a failure: the "off" arm runs no stage, so no series exist while
+        # the baseline arm is the only one in use. A broken scrape is already
+        # covered by LlmApiTargetDown.
         expr: |
           (
-            (
-              sum(rate(llm_lab_guardrail_checks_total{job="idt-api",outcome=~"error|unavailable|timeout"}[5m]))
-              /
-              clamp_min(sum(rate(llm_lab_guardrail_checks_total{job="idt-api"}[5m])), 0.000001)
-            ) > 0.5
-            and sum(rate(llm_lab_guardrail_checks_total{job="idt-api"}[5m])) > 0.01
-          )
-          or absent(llm_lab_guardrail_checks_total{job="idt-api"})
+            sum(rate(llm_lab_guardrail_checks_total{job="idt-api",outcome=~"error|unavailable|timeout"}[5m]))
+            /
+            clamp_min(sum(rate(llm_lab_guardrail_checks_total{job="idt-api"}[5m])), 0.000001)
+          ) > 0.5
+          and sum(rate(llm_lab_guardrail_checks_total{job="idt-api"}[5m])) > 0.01
         for: 10m
         labels:
           severity: page
         annotations:
           summary: Guardrail checks are unavailable
-          description: More than half of recent guardrail checks failed, or no guardrail check metrics have been collected for 10 minutes.
+          description: More than half of recent guardrail checks failed.
           runbook_url: "TODO: add runbook URL for guardrail outage"
 
       - alert: EvaluationRunAborted
