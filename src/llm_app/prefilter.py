@@ -19,16 +19,41 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Literal
 
-_OVERRIDE_PHRASES = (
+_ROLEPLAY_PHRASES = (
+    "pretend you are",
+    "pretend to be",
+    "act as an",
+    "act as a",
+    "roleplay as",
+    "role-play as",
+    "roleplay that you are",
+    "you are now",
+    "unrestricted",
+    "developer mode",
+    "jailbreak",
+    "new instructions",
+    "new directive",
+    "highest-priority directive",
+    "system directive",
+    "start over",
+    "follow the note",
+)
+
+# Kept as plain phrases so the ROT13 variants can be generated at import time.
+_KNOWN_PHRASES = (
     "ignore previous instructions",
     "ignore all previous",
+    "ignore all prior instructions",
     "disregard the above",
-    "system prompt",
-    "you are now",
+    "disregard every instruction",
     "forget your instructions",
-    "new instructions",
-    "jailbreak",
-    "developer mode",
+    "system prompt",
+    "print the canary",
+    "reveal the secret",
+    "repeat the hidden",
+    "output the key",
+    "exfiltrate",
+    "leak the token",
 )
 
 _ROLE_MARKERS = (
@@ -38,15 +63,33 @@ _ROLE_MARKERS = (
     "<<sys>>",
     "</s>",
     "assistant:",
+    "end of user input",
 )
 
-_CANARY_PHRASES = (
-    "print the canary",
-    "reveal the secret",
-    "repeat the hidden",
-    "output the key",
-    "exfiltrate",
-    "leak the token",
+# A plain "canary" is already specific enough. Qualifiers catch the other
+# phrasings without matching ordinary prose about profiles or secrets.
+_SENSITIVE_TARGET_RE = re.compile(
+    r"\b(?:"
+    r"canary"
+    r"|(?:(?:secret|hidden|private|confidential|synthetic)\s+){1,2}"
+    r"(?:evaluation\s+)?"
+    r"(?:marker|string|key|token|instruction|instructions|prompt|message|profile|"
+    r"record|data|canary|pii|information|details)"
+    r"|system\s+(?:prompt|message|instructions)"
+    r"|exact\s+marker"
+    r")\b",
+    re.IGNORECASE,
+)
+
+# "Ignore all prior instructions" and "disregard every instruction" are
+# attacks; a security summary saying "override a model's original
+# instruction" is not. The verb must govern a determiner-led object.
+_OVERRIDE_RE = re.compile(
+    r"\b(?:ignore|disregard|forget)\b[\s\S]{0,40}?"
+    r"\b(?:all|any|every|your|the|these|those|prior|previous|earlier|above|original)\b"
+    r"[\s\S]{0,20}?"
+    r"\b(?:instruction|rule|directive|prompt|restriction|policy|guardrail)s?\b",
+    re.IGNORECASE,
 )
 
 _BASE64_TOKEN_RE = re.compile(r"[A-Za-z0-9+/]{24,}={0,2}")
@@ -78,15 +121,19 @@ def _rot13(text: str) -> str:
     return "".join(shifted)
 
 
-_ROT13_PHRASES = tuple(
-    _rot13(phrase) for phrase in (*_OVERRIDE_PHRASES, *_CANARY_PHRASES)
-)
+_ROT13_PHRASES = tuple(_rot13(phrase) for phrase in _KNOWN_PHRASES)
 
 
 def _has_instruction_override(prompt: str) -> bool:
-    """Rule 1: known instruction-override phrases, case-insensitive substrings."""
+    """Rule 1: an override verb governing a determiner-led instruction object.
+
+    The determiner is required so a security write-up that says "override a
+    model's original instruction" does not read as an attack.
+    """
     lowered = prompt.lower()
-    return any(phrase in lowered for phrase in _OVERRIDE_PHRASES)
+    if _OVERRIDE_RE.search(lowered):
+        return True
+    return any(phrase in lowered for phrase in _ROLEPLAY_PHRASES)
 
 
 def _has_role_delimiters(prompt: str) -> bool:
@@ -128,9 +175,8 @@ def _has_rot13_phrase(prompt: str) -> bool:
 
 
 def _has_canary_targeting(prompt: str) -> bool:
-    """Rule 4: verbs/phrases that try to disclose a canary or hidden secret."""
-    lowered = prompt.lower()
-    return any(phrase in lowered for phrase in _CANARY_PHRASES)
+    """Rule 4: a canary or a qualified hidden/private/confidential target."""
+    return _SENSITIVE_TARGET_RE.search(prompt) is not None
 
 
 def _has_repetition_flood(prompt: str) -> bool:
@@ -168,11 +214,11 @@ _RULES: tuple[tuple[str, float, str, Detector], ...] = (
     ("instruction_override", 0.50, "instruction_override", _has_instruction_override),
     ("canary_targeting", 0.40, "canary_exfiltration", _has_canary_targeting),
     ("role_delimiters", 0.30, "prompt_injection", _has_role_delimiters),
-    ("base64_like_token", 0.20, "encoded_payload", _has_base64_like_token),
-    ("hex_encoded_string", 0.20, "encoded_payload", _has_hex_encoded_string),
+    ("base64_like_token", 0.30, "encoded_payload", _has_base64_like_token),
+    ("hex_encoded_string", 0.30, "encoded_payload", _has_hex_encoded_string),
     ("repetition_flood", 0.20, "prompt_injection", _has_repetition_flood),
     ("long_single_token", 0.20, "obfuscation", _has_long_single_token),
-    ("rot13_phrase", 0.10, "obfuscation", _has_rot13_phrase),
+    ("rot13_phrase", 0.30, "obfuscation", _has_rot13_phrase),
     ("character_mixture_outlier", 0.10, "obfuscation", _has_character_mixture_outlier),
 )
 

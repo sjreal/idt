@@ -837,6 +837,8 @@ async def observability_config() -> dict[str, object]:
         "prometheus_url": settings.prometheus_url,
         "grafana_url": settings.grafana_url,
         "adaptive_enabled": settings.adaptive_enabled,
+        "prefilter_block_threshold": float(settings.prefilter_block_threshold),
+        "prefilter_allow_threshold": float(settings.prefilter_allow_threshold),
         "auth_enabled": bool(settings.api_auth_token),
         "trusted_hosts": list(settings.trusted_hosts),
         "max_body_bytes": settings.max_body_bytes,

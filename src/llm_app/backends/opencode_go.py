@@ -39,6 +39,7 @@ class OpenCodeGoBackend:
             "glm-5.3-flash",
             "hy3",
             "hy4-preview",
+            "iceman-contributor-free",
             "kimi-k2.6",
             "kimi-k2.7-code",
             "kimi-k3",

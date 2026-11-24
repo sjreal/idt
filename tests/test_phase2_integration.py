@@ -231,6 +231,8 @@ def test_observability_and_pricing_endpoints(client: TestClient) -> None:
     config = client.get("/api/observability/config").json()
     assert config["phoenix_url"] == "http://localhost:6006"
     assert config["content_capture_enabled"] is False
+    assert config["prefilter_block_threshold"] == 0.80
+    assert config["prefilter_allow_threshold"] == 0.20
     assert "alert_rules" in config
 
     pricing = client.get("/api/pricing")

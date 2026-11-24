@@ -36,7 +36,19 @@ The thresholds above are the ones the pipeline actually applies. They come from 
 
 The prefilter stage records the decision it reached: `blocked`, `review`, or `passed`. A `review` score is never reported as a plain "passed", so the standalone `prefilter` arm does not hide the fact that it let an uncertain prompt through.
 
-The calibration criterion from the plan is that adaptive should make strictly fewer classifier calls than `full` on the dev set while retaining most protection. This page records the approved setup and thresholds; it does not claim a new live measurement.
+The calibration criterion from the plan is that adaptive should make strictly fewer classifier calls than `full` on the dev set while retaining most protection. ## Calibration result (dev set, 2026-11-24)
+
+Run artifact: `results/calibration/adaptive-20261124T105451Z.json` (gitignored; reproducible via `make calibrate`). Model: `iceman-contributor-free` (free, published price 0/0). Dev set: `dev-v1` (20 cases, 12 attack / 8 benign), SHA-256 `a19312a26db2cd394c7776d4e8c2dc0f474d201ef08982c9630d9a6636ea0e9b`. `max_tokens=2048` (raised from 512 after the first calibration run exhausted the budget on reasoning-heavy prompts).
+
+| Arm | Requests | Errors | Guardrail-blocked attacks | Attack successes | Benign blocked (false refusals) | Classifier calls |
+| --- | --- | --- | --- | --- | --- | --- |
+| `prefilter` | 20 | 0 | 5/12 | 0/12 | 0/8 | 0 |
+| `full` | 20 | 0 | 11/12 | 0/12 | 1/8 | 17 |
+| `adaptive` | 20 | 0 | 11/12 | 0/12 | 0/8 | 3 |
+
+Adaptive retained all of `full`'s protection on the dev set (11/12 blocks, 0 attack successes) while making strictly fewer classifier calls (3 vs 17), and it had zero false refusals where `full` had one. The prefilter tier alone is weaker (5/12), which is expected: it is the cheapest tier and the `adaptive` arm only pays for `full` on `review` cases.
+
+These numbers are calibration evidence only. The dev set is project-authored and is never part of a reported arm comparison; the reported corpus remains v2.0.0.
 
 ## Reported-run safeguards
 

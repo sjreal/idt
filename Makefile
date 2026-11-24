@@ -1,4 +1,4 @@
-.PHONY: install check backend-check frontend-check test lint compose-config dev down model-pull guard-model-pull api-local frontend-local experiment garak-scan observability-up observability-down phoenix-up traces pricing-refresh pricing-check report compare data-check
+.PHONY: install check backend-check frontend-check test lint compose-config dev down model-pull guard-model-pull api-local frontend-local experiment calibrate garak-scan observability-up observability-down phoenix-up traces pricing-refresh pricing-check report compare data-check
 
 MODEL ?= llama3.2:1b
 GUARD_MODEL ?= llama-guard3:1b
@@ -57,6 +57,11 @@ experiment:
 	uv run python -m security_eval.cli --seed 42 --sample-limit $(SAMPLE_LIMIT) \
 		--arms $(ARMS) --replicates $(REPLICATES) \
 		$(if $(MAX_REQUESTS),--max-requests $(MAX_REQUESTS),)
+
+calibrate:
+	uv run python scripts/calibrate_adaptive.py \
+		$(if $(CALIBRATION_MODEL),--model $(CALIBRATION_MODEL),) \
+		$(if $(CALIBRATION_ARMS),--arms $(CALIBRATION_ARMS),)
 
 observability-up:
 	docker compose -f docker-compose.yml -f docker-compose.observability.yml --profile observability up --build -d

@@ -28,7 +28,7 @@
   },
   "integrity": {
     "algorithm": "sha256",
-    "sha256": "00ff119cf3c9b7eb50d4de6f8e6abaf96c735365cdba137fa7d2eaa4a9b57ef2"
+    "sha256": "31c09326fe788fd85414d89141f193b1a4cadc1cede0d48cd012e2a8a0aaa3ac"
   },
   "models": {
     "beam-free": {
@@ -118,6 +118,17 @@
       },
       "notes": "Hy4 preview",
       "output_per_mtok": 2.501
+    },
+    "iceman-contributor-free": {
+      "cached_input_per_mtok": 0,
+      "free": true,
+      "input_per_mtok": 0,
+      "limits": {
+        "context": 262144,
+        "output": 131072
+      },
+      "notes": "Iceman Contributor Free",
+      "output_per_mtok": 0
     },
     "kimi-k2.6": {
       "cached_input_per_mtok": null,
@@ -241,7 +252,7 @@
   "notes": "Notional list-price equivalent for OpenCode Go (subscription plan). marginal_usd is zero inside the plan allowance; quota is tracked separately. Prices are USD per million tokens.",
   "provider": "opencode-go",
   "provider_doc_url": "https://opencode.ai/v2/docs/console/go/",
-  "retrieved_at": "2026-11-23",
+  "retrieved_at": "2026-11-24",
   "schema_version": 1,
   "source_url": "https://models.dev/api.json"
 }
